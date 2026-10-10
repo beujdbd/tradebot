@@ -10,12 +10,77 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 
+if not RunService:IsClient() then
+	warn("[LootForge] GameClient doit être un LocalScript (pas un Script), placé dans StarterPlayer > StarterPlayerScripts.")
+	return
+end
+
 local player = Players.LocalPlayer
-local Config = require(ReplicatedStorage:WaitForChild("GameConfig"))
-local remotes = ReplicatedStorage:WaitForChild("Remotes")
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Message rouge en haut de l'écran quand l'installation a un problème
+local function showFatal(text)
+	warn("[LootForge] " .. text)
+	if playerGui:FindFirstChild("LootForgeError") then
+		return nil -- le serveur a déjà affiché l'explication
+	end
+	local screen = Instance.new("ScreenGui")
+	screen.Name = "LootForgeError"
+	screen.ResetOnSpawn = false
+	screen.DisplayOrder = 100
+	local label = Instance.new("TextLabel")
+	label.AnchorPoint = Vector2.new(0.5, 0)
+	label.Position = UDim2.new(0.5, 0, 0, 16)
+	label.Size = UDim2.new(0.85, 0, 0, 0)
+	label.AutomaticSize = Enum.AutomaticSize.Y
+	label.BackgroundColor3 = Color3.fromRGB(150, 25, 25)
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 20
+	label.TextWrapped = true
+	label.Text = "⚠ " .. text
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 12)
+	padding.PaddingBottom = UDim.new(0, 12)
+	padding.PaddingLeft = UDim.new(0, 16)
+	padding.PaddingRight = UDim.new(0, 16)
+	padding.Parent = label
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = label
+	label.Parent = screen
+	screen.Parent = playerGui
+	return screen
+end
+
+-- Attend un objet ; s'il tarde trop, explique le problème à l'écran mais continue
+-- d'attendre (et enlève le message s'il finit par arriver)
+local function waitFor(name, problem)
+	local object = ReplicatedStorage:WaitForChild(name, 20)
+	if object then
+		return object
+	end
+	local banner = showFatal(problem)
+	object = ReplicatedStorage:WaitForChild(name)
+	if banner then
+		banner:Destroy()
+	end
+	return object
+end
+
+local configModule = waitFor("GameConfig", "Je ne trouve pas le ModuleScript « GameConfig » dans ReplicatedStorage. Crée-le "
+	.. "(ReplicatedStorage → + → ModuleScript), appelle-le exactement GameConfig et colle le script 1 dedans.")
+local configLoaded, Config = pcall(require, configModule)
+if not configLoaded or type(Config) ~= "table" or type(Config.Ores) ~= "table" then
+	showFatal("GameConfig contient une erreur ou pas le bon code. Efface TOUT (Ctrl+A puis Suppr) et recolle le script 1 en entier.")
+	return
+end
+local remotes = waitFor("Remotes", "Le script serveur ne s'est pas lancé. GameServer doit être un Script (pas un "
+	.. "LocalScript) dans ServerScriptService, avec TOUT le script 2 collé dedans. Regarde la fenêtre Output (View → Output).")
 local DataUpdate = remotes:WaitForChild("DataUpdate")
 local Notify = remotes:WaitForChild("Notify")
 local LootFx = remotes:WaitForChild("LootFx")
@@ -178,11 +243,15 @@ end
 ------------------------------------------------------------------------
 -- L'ÉCRAN PRINCIPAL
 ------------------------------------------------------------------------
+local oldGui = playerGui:FindFirstChild("LootForgeUI")
+if oldGui then
+	oldGui:Destroy() -- le script a été relancé : on évite d'avoir l'interface en double
+end
 local gui = new("ScreenGui", {
 	Name = "LootForgeUI",
 	ResetOnSpawn = false,
 	ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-	Parent = player:WaitForChild("PlayerGui"),
+	Parent = playerGui,
 })
 
 -- Notifications (en haut au centre)
@@ -1264,3 +1333,11 @@ if camera then
 end
 
 Action:FireServer("RequestData") -- demande nos données au serveur
+
+-- Si le serveur ne répond jamais, on le dit au lieu de rester sur "Chargement..."
+task.delay(15, function()
+	if not state then
+		showNotification("Le serveur ne répond pas. Ouvre la fenêtre Output (View → Output) : "
+			.. "il y a sûrement une erreur rouge dans GameServer.", COLORS.Bad)
+	end
+end)

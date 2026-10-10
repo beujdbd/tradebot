@@ -14,8 +14,178 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataStoreService = game:GetService("DataStoreService")
 local RunService = game:GetService("RunService")
+local StarterPlayer = game:GetService("StarterPlayer")
 
-local Config = require(ReplicatedStorage:WaitForChild("GameConfig"))
+------------------------------------------------------------------------
+-- 0. VÉRIFICATION DE L'INSTALLATION
+-- Si un script est mal placé ou mal nommé, on le répare tout seul quand
+-- c'est possible. Sinon, on affiche un message clair sur l'écran du joueur
+-- (et dans la fenêtre Output).
+------------------------------------------------------------------------
+if RunService:IsClient() then
+	warn("[LootForge] GameServer doit être un Script (pas un LocalScript), placé dans ServerScriptService.")
+	return
+end
+
+-- Affiche un grand message rouge en haut de l'écran d'un joueur
+local function addErrorBanner(player, text)
+	local playerGui = player:WaitForChild("PlayerGui", 15)
+	if not playerGui then
+		return
+	end
+	local screen = playerGui:FindFirstChild("LootForgeError")
+	if not screen then
+		screen = Instance.new("ScreenGui")
+		screen.Name = "LootForgeError"
+		screen.ResetOnSpawn = false
+		screen.DisplayOrder = 100
+		local list = Instance.new("Frame")
+		list.Name = "List"
+		list.AnchorPoint = Vector2.new(0.5, 0)
+		list.Position = UDim2.new(0.5, 0, 0, 16)
+		list.Size = UDim2.new(0.85, 0, 0, 0)
+		list.AutomaticSize = Enum.AutomaticSize.Y
+		list.BackgroundTransparency = 1
+		list.Parent = screen
+		local layout = Instance.new("UIListLayout")
+		layout.Padding = UDim.new(0, 8)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = list
+		screen.Parent = playerGui
+	end
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 0, 0)
+	label.AutomaticSize = Enum.AutomaticSize.Y
+	label.BackgroundColor3 = Color3.fromRGB(150, 25, 25)
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 20
+	label.TextWrapped = true
+	label.Text = "⚠ " .. text
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 12)
+	padding.PaddingBottom = UDim.new(0, 12)
+	padding.PaddingLeft = UDim.new(0, 16)
+	padding.PaddingRight = UDim.new(0, 16)
+	padding.Parent = label
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 10)
+	corner.Parent = label
+	label.Parent = screen.List
+end
+
+-- Affiche le message à tous les joueurs (ceux déjà là et ceux qui arrivent)
+local function showErrorOnScreen(text)
+	warn("[LootForge] " .. text)
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.spawn(addErrorBanner, player, text)
+	end
+	Players.PlayerAdded:Connect(function(player)
+		addErrorBanner(player, text)
+	end)
+end
+
+local SEARCH_SERVICES = {
+	"ReplicatedStorage", "Workspace", "ServerScriptService", "ServerStorage",
+	"StarterPlayer", "StarterGui", "StarterPack", "ReplicatedFirst", "Lighting",
+}
+
+local function forEachObject(callback)
+	for _, serviceName in ipairs(SEARCH_SERVICES) do
+		local ok, service = pcall(game.GetService, game, serviceName)
+		if ok and service then
+			for _, object in ipairs(service:GetDescendants()) do
+				callback(object)
+			end
+		end
+	end
+end
+
+-- "GameConfig.lua", "Game Config", "gameconfig" -> "gameconfig"
+local function simpleName(name)
+	local lowered = string.lower(name)
+	lowered = string.gsub(lowered, "%.lua$", "")
+	lowered = string.gsub(lowered, "[^%w]", "")
+	return lowered
+end
+
+local function looksLikeConfig(value)
+	return type(value) == "table" and type(value.Ores) == "table" and type(value.Stages) == "table"
+		and type(value.Format) == "function"
+end
+
+-- Trouve le ModuleScript GameConfig, même s'il est mal nommé ou mal placé
+local function loadConfig()
+	local exact = ReplicatedStorage:FindFirstChild("GameConfig")
+	if exact and not exact:IsA("ModuleScript") then
+		return nil, "« GameConfig » est un " .. exact.ClassName .. " : il faut un ModuleScript. Supprime-le, puis "
+			.. "ReplicatedStorage → + → ModuleScript, appelle-le GameConfig et colle le script 1 dedans."
+	end
+	local candidates = {}
+	if exact then
+		table.insert(candidates, exact)
+	end
+	forEachObject(function(object)
+		if object:IsA("ModuleScript") and object ~= exact then
+			local name = simpleName(object.Name)
+			if name == "gameconfig" or name == "modulescript" then
+				table.insert(candidates, object)
+			end
+		end
+	end)
+	if #candidates == 0 then
+		return nil, "Je ne trouve pas le ModuleScript « GameConfig ». Dans ReplicatedStorage → + → ModuleScript, "
+			.. "appelle-le exactement GameConfig, efface tout ce qu'il contient et colle le script 1."
+	end
+	local problem = nil
+	for _, module in ipairs(candidates) do
+		local ok, result = pcall(require, module)
+		if ok and looksLikeConfig(result) then
+			if module.Parent ~= ReplicatedStorage or module.Name ~= "GameConfig" then
+				warn("[LootForge] Config trouvée dans « " .. module:GetFullName() .. " » : je la déplace dans ReplicatedStorage.GameConfig")
+				module.Name = "GameConfig"
+				module.Parent = ReplicatedStorage
+			end
+			return result
+		end
+		if not problem then
+			if ok then
+				problem = "Le ModuleScript « " .. module.Name .. " » ne contient pas le bon code. Efface TOUT ce qu'il "
+					.. "contient (Ctrl+A puis Suppr) et colle le script 1 en entier."
+			else
+				problem = "Le ModuleScript « " .. module.Name .. " » contient une erreur (code incomplet ou mal collé ?). "
+					.. "Efface TOUT (Ctrl+A puis Suppr) et recolle le script 1 en entier. Détail : " .. tostring(result)
+			end
+		end
+	end
+	return nil, problem
+end
+
+-- Si le LocalScript de l'interface est mal placé, on le remet au bon endroit
+local function checkClientScript()
+	local starterScripts = StarterPlayer:FindFirstChildOfClass("StarterPlayerScripts")
+	forEachObject(function(object)
+		if simpleName(object.Name) == "gameclient" then
+			if object:IsA("LocalScript") then
+				if starterScripts and object.Parent ~= starterScripts then
+					warn("[LootForge] « " .. object:GetFullName() .. " » déplacé dans StarterPlayer.StarterPlayerScripts")
+					object.Parent = starterScripts
+				end
+			elseif object:IsA("BaseScript") or object:IsA("ModuleScript") then
+				showErrorOnScreen("« " .. object.Name .. " » est un " .. object.ClassName .. " : il faut un LocalScript. "
+					.. "Supprime-le, puis StarterPlayer → StarterPlayerScripts → + → LocalScript et colle le script 3 dedans.")
+			end
+		end
+	end)
+end
+
+local Config, configProblem = loadConfig()
+if not Config then
+	showErrorOnScreen(configProblem)
+	return
+end
+checkClientScript()
+
 local rng = Random.new()
 
 local function random01()
@@ -67,6 +237,11 @@ local HUB_SPAWN = Vector3.new(0, BASE_Y + 1, 0)
 local oldMap = workspace:FindFirstChild("LootForgeMap")
 if oldMap then
 	oldMap:Destroy()
+end
+-- Panneau « appuie sur Play » du fichier .rbxlx (visible seulement avant de lancer le jeu)
+local pressPlaySign = workspace:FindFirstChild("PressPlaySign")
+if pressPlaySign then
+	pressPlaySign:Destroy()
 end
 local mapFolder = Instance.new("Folder")
 mapFolder.Name = "LootForgeMap"
@@ -1050,18 +1225,32 @@ end)
 ------------------------------------------------------------------------
 -- 6. TÉLÉPORTATION
 ------------------------------------------------------------------------
+-- Avec le "Streaming" de Roblox (activé par défaut), le client ne reçoit que
+-- les objets proches de lui : on demande d'abord la zone d'arrivée, sinon le
+-- joueur pourrait tomber avant que le sol n'apparaisse.
+local function streamAround(player, position)
+	if workspace.StreamingEnabled then
+		pcall(function()
+			player:RequestStreamAroundAsync(position, 5)
+		end)
+	end
+end
+
 teleportToHub = function(player)
+	local target = HUB_SPAWN + Vector3.new(0, 3, 0)
+	streamAround(player, target)
 	local character = player.Character
 	if character and character:FindFirstChild("HumanoidRootPart") then
-		character:PivotTo(CFrame.new(HUB_SPAWN + Vector3.new(0, 3, 0)))
+		character:PivotTo(CFrame.new(target))
 	end
 end
 
 local function teleportToStage(player, stage)
+	local arrival = arenaArrival(stage)
+	local center = arenaCenter(stage)
+	streamAround(player, arrival)
 	local character = player.Character
 	if character and character:FindFirstChild("HumanoidRootPart") then
-		local arrival = arenaArrival(stage)
-		local center = arenaCenter(stage)
 		character:PivotTo(CFrame.lookAt(arrival, Vector3.new(center.X, arrival.Y, center.Z)))
 	end
 end
@@ -1276,7 +1465,10 @@ actions.RequestData = function(player, profile)
 	profile.Dirty = true
 end
 
+local clientReady = {} -- [player] = true quand l'interface du joueur a démarré
+
 Action.OnServerEvent:Connect(function(player, actionName, payload)
+	clientReady[player] = true
 	local profile = profiles[player]
 	if not profile or type(actionName) ~= "string" then
 		return
@@ -1316,9 +1508,18 @@ local function onCharacterAdded(player, character)
 	humanoid.MaxHealth = 100 + 25 * profile.Data.Rebirths
 	humanoid.Health = humanoid.MaxHealth
 	task.wait(0.3) -- on laisse le temps au sac à dos (Backpack) de se créer
-	if player.Character == character then
-		giveWeapon(player)
+	if player.Character ~= character then
+		return
 	end
+	-- Apparu ailleurs que dans le hub (ex : ancien SpawnLocation sous le hub) ? On le ramène.
+	local root = character:FindFirstChild("HumanoidRootPart")
+	if root then
+		local offset = root.Position - HUB_SPAWN
+		if math.abs(offset.Y) > 15 or Vector3.new(offset.X, 0, offset.Z).Magnitude > HUB_SIZE / 2 then
+			teleportToHub(player)
+		end
+	end
+	giveWeapon(player)
 end
 
 local function onPlayerAdded(player)
@@ -1342,6 +1543,14 @@ local function onPlayerAdded(player)
 	if player.Character then
 		task.spawn(onCharacterAdded, player, player.Character)
 	end
+	-- Si l'interface ne répond jamais, c'est que GameClient ne tourne pas
+	task.delay(25, function()
+		if player.Parent == Players and not clientReady[player] then
+			addErrorBanner(player, "L'interface ne s'est pas lancée. GameClient doit être un LocalScript dans "
+				.. "StarterPlayer → StarterPlayerScripts, avec TOUT le script 3 collé dedans. "
+				.. "Regarde la fenêtre Output (View → Output) pour voir l'erreur en rouge.")
+		end
+	end)
 	notify(player, "Bienvenue dans " .. Config.GameTitle .. " ! Bats des monstres, récupère des minerais et forge des armes !", COLOR_GOLD)
 	if not canSave then
 		notify(player, "⚠ Sauvegarde désactivée (dans Studio : Game Settings > Security > Enable Studio Access to API Services).", COLOR_BAD)
@@ -1356,6 +1565,7 @@ end
 Players.PlayerRemoving:Connect(function(player)
 	saveData(player)
 	profiles[player] = nil
+	clientReady[player] = nil
 	for _, enemy in ipairs(enemies) do
 		enemy.Contributors[player] = nil
 	end

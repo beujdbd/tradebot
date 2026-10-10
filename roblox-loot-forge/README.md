@@ -19,7 +19,10 @@ tu **forges** des armes avec tes minerais → tu deviens plus fort → tu déblo
 
 **Formule des dégâts :** `Puissance × Multiplicateur de l'arme × Multiplicateur de rebirth`
 
-## Les 3 scripts
+## Les fichiers
+
+`LootForge.rbxlx` est le jeu complet, prêt à ouvrir dans Roblox Studio. Les 3 scripts
+ci-dessous sont les mêmes, pour ceux qui préfèrent copier-coller.
 
 | Fichier | Type dans Studio | Où le mettre | Nom exact |
 |---|---|---|---|
@@ -30,7 +33,21 @@ tu **forges** des armes avec tes minerais → tu deviens plus fort → tu déblo
 Pas besoin de construire la carte ni l'interface à la main : **les scripts créent tout
 automatiquement** au lancement (hub, arènes, monstres, menus).
 
-## Installation dans Roblox Studio (pas à pas)
+## Méthode la plus simple : ouvrir le fichier du jeu (recommandé)
+
+Le fichier **`LootForge.rbxlx`** contient déjà les 3 scripts, rangés au bon endroit.
+Aucun copier-coller, aucune erreur de nom possible.
+
+1. Télécharge **`LootForge.rbxlx`** (dans ce dossier).
+2. Double-clique dessus, ou dans Roblox Studio : **File → Open from File…** et choisis-le.
+3. Le monde est vide avec juste le texte « appuie sur Play » : **c'est normal**,
+   la carte est construite par les scripts au lancement.
+4. Clique sur **▶ Play** (F5). Tu apparais dans le hub. 🎉
+
+## Installation à la main (copier-coller)
+
+> Ajoute les scripts **en mode édition**, pas pendant un test (pas de bouton Stop
+> rouge visible) : tout ce qui est ajouté pendant un test disparaît quand on l'arrête.
 
 1. **Ouvre Roblox Studio** → *New* → choisis le modèle **Baseplate**.
 2. **Affiche l'Explorer et les Propriétés** : onglet *View* (Affichage) → clique sur
@@ -87,13 +104,39 @@ Tout se règle dans **GameConfig** (les commentaires expliquent chaque valeur) :
 
 ## Si ça ne marche pas
 
+Le jeu vérifie son installation tout seul :
+
+- Si un script est **mal nommé ou mal rangé** (ex : la config s'appelle encore
+  `ModuleScript`, ou l'interface est dans StarterGui), il est **réparé
+  automatiquement** et un message jaune l'indique dans l'Output.
+- Sinon, un **message rouge** s'affiche en haut de l'écran et dit exactement quoi
+  corriger (script manquant, mauvais type de script, code mal collé…).
+- En mode édition (avant Play), le monde est vide : c'est normal, tout est créé au lancement.
+
+Dans la fenêtre **Output** (*View → Output*), quand tout va bien, tu dois lire
+`[LootForge] Serveur prêt !` au lancement. Si tu ne vois ni le jeu, ni de message rouge,
+ni cette ligne, alors les scripts ne sont pas la dernière version, ou ils ont été ajoutés
+pendant un test (ils ont disparu au Stop).
+
+Autres pistes :
+
 - Ouvre la fenêtre **Output** (*View* → *Output*) : les erreurs y sont écrites en rouge.
 - `Infinite yield possible on 'ReplicatedStorage:WaitForChild("GameConfig")'`
   → le ModuleScript n'est pas nommé exactement `GameConfig` ou pas dans ReplicatedStorage.
-- Rien ne s'affiche à l'écran → vérifie que `GameClient` est bien un **LocalScript**
-  (pas un Script) et qu'il est dans **StarterPlayerScripts**.
+- **Ni carte ni menus** → c'est presque toujours **GameConfig** : il doit être un
+  **ModuleScript** nommé exactement `GameConfig` dans ReplicatedStorage, et il ne doit
+  rester ni `local module = {}` ni `return module` (le script se termine par `return Config`).
+  Dans l'Output, on voit alors `Requested module experienced an error while loading`.
+- **La carte est là mais pas les menus** → vérifie que `GameClient` est bien un
+  **LocalScript** (pas un Script) dans **StarterPlayerScripts**.
 - Pas de carte / pas de monstres → vérifie que `GameServer` est un **Script** dans
   **ServerScriptService**.
+- Le plus sûr : utilise le fichier **`LootForge.rbxlx`** (méthode la plus simple, plus haut).
+- La dernière ligne du script 2 doit être `print("[LootForge] Serveur prêt !")` : sinon
+  il n'a pas été copié en entier.
+- Si tu tombes dans le vide en arrivant dans une étape lointaine : sélectionne
+  **Workspace** et décoche **StreamingEnabled** dans les Properties (déjà fait dans
+  `LootForge.rbxlx`).
 - Message « Sauvegarde désactivée » → normal dans Studio tant que l'accès API n'est
   pas activé (voir plus haut).
 
