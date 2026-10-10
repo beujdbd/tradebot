@@ -29,12 +29,12 @@ local function showFatal(text)
 		return nil -- le serveur a déjà affiché l'explication
 	end
 	local screen = Instance.new("ScreenGui")
-	screen.Name = "LootForgeError"
+	screen.Name = "LootForgeClientError"
 	screen.ResetOnSpawn = false
 	screen.DisplayOrder = 100
 	local label = Instance.new("TextLabel")
-	label.AnchorPoint = Vector2.new(0.5, 0)
-	label.Position = UDim2.new(0.5, 0, 0, 16)
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.new(0.5, 0, 0.5, 0)
 	label.Size = UDim2.new(0.85, 0, 0, 0)
 	label.AutomaticSize = Enum.AutomaticSize.Y
 	label.BackgroundColor3 = Color3.fromRGB(150, 25, 25)
@@ -77,6 +77,12 @@ local configModule = waitFor("GameConfig", "Je ne trouve pas le ModuleScript « 
 local configLoaded, Config = pcall(require, configModule)
 if not configLoaded or type(Config) ~= "table" or type(Config.Ores) ~= "table" then
 	showFatal("GameConfig contient une erreur ou pas le bon code. Efface TOUT (Ctrl+A puis Suppr) et recolle le script 1 en entier.")
+	-- Prévient le serveur que l'interface a bien démarré (pour qu'il n'affiche pas un 2e message trompeur)
+	local earlyRemotes = ReplicatedStorage:FindFirstChild("Remotes")
+	local earlyAction = earlyRemotes and earlyRemotes:FindFirstChild("Action")
+	if earlyAction then
+		earlyAction:FireServer("ClientConfigError")
+	end
 	return
 end
 local remotes = waitFor("Remotes", "Le script serveur ne s'est pas lancé. GameServer doit être un Script (pas un "
@@ -1336,8 +1342,15 @@ Action:FireServer("RequestData") -- demande nos données au serveur
 
 -- Si le serveur ne répond jamais, on le dit au lieu de rester sur "Chargement..."
 task.delay(15, function()
-	if not state then
-		showNotification("Le serveur ne répond pas. Ouvre la fenêtre Output (View → Output) : "
-			.. "il y a sûrement une erreur rouge dans GameServer.", COLORS.Bad)
+	if state then
+		return
+	end
+	local banner = showFatal("Le serveur ne répond pas. Ouvre la fenêtre Output (View → Output) : "
+		.. "il y a sûrement une erreur rouge dans GameServer.")
+	while not state do
+		task.wait(1)
+	end
+	if banner then
+		banner:Destroy()
 	end
 end)

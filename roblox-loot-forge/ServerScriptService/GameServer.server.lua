@@ -27,16 +27,23 @@ if RunService:IsClient() then
 	return
 end
 
+-- Panneau « appuie sur Play » du fichier .rbxlx (visible seulement avant de lancer le jeu)
+local pressPlaySign = workspace:FindFirstChild("PressPlaySign")
+if pressPlaySign then
+	pressPlaySign:Destroy()
+end
+
 -- Affiche un grand message rouge en haut de l'écran d'un joueur
-local function addErrorBanner(player, text)
+local function addErrorBanner(player, text, guiName)
+	guiName = guiName or "LootForgeError"
 	local playerGui = player:WaitForChild("PlayerGui", 15)
 	if not playerGui then
 		return
 	end
-	local screen = playerGui:FindFirstChild("LootForgeError")
+	local screen = playerGui:FindFirstChild(guiName)
 	if not screen then
 		screen = Instance.new("ScreenGui")
-		screen.Name = "LootForgeError"
+		screen.Name = guiName
 		screen.ResetOnSpawn = false
 		screen.DisplayOrder = 100
 		local list = Instance.new("Frame")
@@ -109,6 +116,23 @@ local function simpleName(name)
 	return lowered
 end
 
+-- require() avec une limite de temps : un module qui attend pour toujours ne bloque pas le jeu
+local function tryRequire(module)
+	local finished, ok, result = false, false, nil
+	task.spawn(function()
+		ok, result = pcall(require, module)
+		finished = true
+	end)
+	local started = os.clock()
+	while not finished and os.clock() - started < 3 do
+		task.wait(0.05)
+	end
+	if not finished then
+		return false, "le module ne répond pas"
+	end
+	return ok, result
+end
+
 local function looksLikeConfig(value)
 	return type(value) == "table" and type(value.Ores) == "table" and type(value.Stages) == "table"
 		and type(value.Format) == "function"
@@ -128,7 +152,11 @@ local function loadConfig()
 	forEachObject(function(object)
 		if object:IsA("ModuleScript") and object ~= exact then
 			local name = simpleName(object.Name)
-			if name == "gameconfig" or name == "modulescript" then
+			local likelyPlace = object:IsDescendantOf(ReplicatedStorage)
+				or object:IsDescendantOf(game:GetService("ServerScriptService"))
+				or object:IsDescendantOf(game:GetService("ServerStorage"))
+				or object:IsDescendantOf(StarterPlayer)
+			if name == "gameconfig" or (name == "modulescript" and likelyPlace) then
 				table.insert(candidates, object)
 			end
 		end
@@ -139,8 +167,17 @@ local function loadConfig()
 	end
 	local problem = nil
 	for _, module in ipairs(candidates) do
-		local ok, result = pcall(require, module)
+		local ok, result = tryRequire(module)
 		if ok and looksLikeConfig(result) then
+			-- Un autre « GameConfig » (cassé) traîne dans ReplicatedStorage ? On le met de côté,
+			-- sinon le client pourrait charger le mauvais.
+			for _, other in ipairs(ReplicatedStorage:GetChildren()) do
+				if other ~= module and other.Name == "GameConfig" then
+					warn("[LootForge] Ancien « GameConfig » (mauvais code) mis de côté dans ServerStorage")
+					other.Name = "GameConfig_ANCIEN"
+					other.Parent = game:GetService("ServerStorage")
+				end
+			end
 			if module.Parent ~= ReplicatedStorage or module.Name ~= "GameConfig" then
 				warn("[LootForge] Config trouvée dans « " .. module:GetFullName() .. " » : je la déplace dans ReplicatedStorage.GameConfig")
 				module.Name = "GameConfig"
@@ -238,11 +275,7 @@ local oldMap = workspace:FindFirstChild("LootForgeMap")
 if oldMap then
 	oldMap:Destroy()
 end
--- Panneau « appuie sur Play » du fichier .rbxlx (visible seulement avant de lancer le jeu)
-local pressPlaySign = workspace:FindFirstChild("PressPlaySign")
-if pressPlaySign then
-	pressPlaySign:Destroy()
-end
+
 local mapFolder = Instance.new("Folder")
 mapFolder.Name = "LootForgeMap"
 mapFolder.Parent = workspace
@@ -1468,7 +1501,14 @@ end
 local clientReady = {} -- [player] = true quand l'interface du joueur a démarré
 
 Action.OnServerEvent:Connect(function(player, actionName, payload)
-	clientReady[player] = true
+	if not clientReady[player] then
+		clientReady[player] = true
+		local playerGui = player:FindFirstChildOfClass("PlayerGui")
+		local watchdog = playerGui and playerGui:FindFirstChild("LootForgeWatchdog")
+		if watchdog then
+			watchdog:Destroy() -- l'interface a fini par démarrer
+		end
+	end
 	local profile = profiles[player]
 	if not profile or type(actionName) ~= "string" then
 		return
@@ -1543,17 +1583,20 @@ local function onPlayerAdded(player)
 	if player.Character then
 		task.spawn(onCharacterAdded, player, player.Character)
 	end
-	-- Si l'interface ne répond jamais, c'est que GameClient ne tourne pas
-	task.delay(25, function()
-		if player.Parent == Players and not clientReady[player] then
-			addErrorBanner(player, "L'interface ne s'est pas lancée. GameClient doit être un LocalScript dans "
-				.. "StarterPlayer → StarterPlayerScripts, avec TOUT le script 3 collé dedans. "
-				.. "Regarde la fenêtre Output (View → Output) pour voir l'erreur en rouge.")
-		end
-	end)
+	-- Dans Studio : si l'interface ne répond jamais, c'est que GameClient ne tourne pas
+	if RunService:IsStudio() then
+		task.delay(25, function()
+			if player.Parent == Players and not clientReady[player] then
+				addErrorBanner(player, "L'interface ne s'est pas lancée. GameClient doit être un LocalScript dans "
+					.. "StarterPlayer → StarterPlayerScripts, avec TOUT le script 3 collé dedans. "
+					.. "Regarde la fenêtre Output (View → Output) pour voir l'erreur en rouge.", "LootForgeWatchdog")
+			end
+		end)
+	end
 	notify(player, "Bienvenue dans " .. Config.GameTitle .. " ! Bats des monstres, récupère des minerais et forge des armes !", COLOR_GOLD)
 	if not canSave then
-		notify(player, "⚠ Sauvegarde désactivée (dans Studio : Game Settings > Security > Enable Studio Access to API Services).", COLOR_BAD)
+		notify(player, "⚠ Sauvegarde désactivée : File → Publish to Roblox, puis Game Settings → Security → "
+			.. "Enable Studio Access to API Services.", COLOR_BAD)
 	end
 end
 
