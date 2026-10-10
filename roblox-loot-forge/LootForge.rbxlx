@@ -636,12 +636,37 @@ local function makePart(props)
 	return part
 end
 
-local function makeSign(adornee, text, color, width, height, offsetY)
+-- Panneau flottant : une carte sombre aux coins arrondis (ou juste du texte si plain = true)
+local function makeSign(adornee, text, color, width, height, offsetY, plain)
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.new(width, 0, height, 0)
 	gui.StudsOffset = Vector3.new(0, offsetY, 0)
 	gui.MaxDistance = 250
 	gui.LightInfluence = 0
+	local holder = gui
+	if not plain then
+		local card = Instance.new("Frame")
+		card.Size = UDim2.fromScale(1, 1)
+		card.BackgroundColor3 = Color3.fromRGB(16, 20, 34)
+		card.BackgroundTransparency = 0.15
+		card.BorderSizePixel = 0
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.3, 0)
+		corner.Parent = card
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = color
+		stroke.Thickness = 3
+		stroke.Transparency = 0.15
+		stroke.Parent = card
+		local padding = Instance.new("UIPadding")
+		padding.PaddingTop = UDim.new(0.1, 0)
+		padding.PaddingBottom = UDim.new(0.1, 0)
+		padding.PaddingLeft = UDim.new(0.05, 0)
+		padding.PaddingRight = UDim.new(0.05, 0)
+		padding.Parent = card
+		card.Parent = gui
+		holder = card
+	end
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
@@ -649,8 +674,8 @@ local function makeSign(adornee, text, color, width, height, offsetY)
 	label.TextColor3 = color
 	label.TextScaled = true
 	label.Font = Enum.Font.FredokaOne
-	label.TextStrokeTransparency = 0
-	label.Parent = gui
+	label.TextStrokeTransparency = plain and 0 or 0.6
+	label.Parent = holder
 	gui.Parent = adornee
 	return gui, label
 end
@@ -738,7 +763,7 @@ local titlePost = makePart({
 	Transparency = 1,
 	CanCollide = false,
 })
-makeSign(titlePost, Config.GameTitle, COLOR_GOLD, 60, 12, 0)
+makeSign(titlePost, Config.GameTitle, COLOR_GOLD, 60, 12, 0, true)
 
 -- 2b. TAPIS D'ENTRAÎNEMENT -------------------------------------------
 local padParts = {}
@@ -1323,7 +1348,11 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 	barBack.BorderSizePixel = 0
 	barBack.Parent = gui
 	local backCorner = Instance.new("UICorner")
-	backCorner.CornerRadius = UDim.new(0.3, 0)
+	backCorner.CornerRadius = UDim.new(1, 0)
+	local backStroke = Instance.new("UIStroke")
+	backStroke.Color = Color3.fromRGB(0, 0, 0)
+	backStroke.Thickness = 2
+	backStroke.Parent = barBack
 	backCorner.Parent = barBack
 
 	local fill = Instance.new("Frame")
@@ -1332,7 +1361,7 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 	fill.BorderSizePixel = 0
 	fill.Parent = barBack
 	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0.3, 0)
+	fillCorner.CornerRadius = UDim.new(1, 0)
 	fillCorner.Parent = fill
 
 	local hpLabel = Instance.new("TextLabel")
@@ -2033,9 +2062,10 @@ print("[LootForge] Serveur prêt !")
 	À placer dans : StarterPlayer > StarterPlayerScripts
 
 	Ce script crée toute l'interface (pas besoin de la dessiner à la main) :
-	  - les stats (puissance, dégâts, pièces...) à gauche
+	  - les stats (puissance, dégâts, pièces, minerais) en pastilles à gauche
 	  - la barre de menus en bas : Forge, Minerais, Armes, Boutique, Donjon, Rebirth
 	  - les notifications, le butin "+1 Rubis", les chiffres de dégâts
+	Pour changer les couleurs ou les polices : regarde la partie STYLE plus bas.
 ]]
 
 local Players = game:GetService("Players")
@@ -2123,22 +2153,35 @@ local LootFx = remotes:WaitForChild("LootFx")
 local HitFx = remotes:WaitForChild("HitFx")
 local OpenPanel = remotes:WaitForChild("OpenPanel")
 local Action = remotes:WaitForChild("Action")
+local GuiService = game:GetService("GuiService")
 
-local COLORS = {
-	Panel = Color3.fromRGB(25, 27, 38),
-	Row = Color3.fromRGB(40, 43, 58),
-	Dark = Color3.fromRGB(18, 19, 28),
-	Text = Color3.fromRGB(240, 240, 245),
-	Sub = Color3.fromRGB(165, 170, 190),
-	Gold = Color3.fromRGB(255, 200, 60),
-	Good = Color3.fromRGB(70, 190, 100),
-	Bad = Color3.fromRGB(225, 70, 70),
-	Blue = Color3.fromRGB(65, 135, 255),
-	Purple = Color3.fromRGB(165, 85, 255),
-	Orange = Color3.fromRGB(255, 140, 50),
-	Pink = Color3.fromRGB(220, 80, 160),
-	Disabled = Color3.fromRGB(80, 82, 95),
+------------------------------------------------------------------------
+-- STYLE : couleurs, polices (change-les ici pour personnaliser l'interface)
+------------------------------------------------------------------------
+local THEME = {
+	Glass = Color3.fromRGB(16, 20, 34),   -- fond des panneaux
+	Card = Color3.fromRGB(30, 36, 58),    -- lignes et cartes
+	Inset = Color3.fromRGB(10, 13, 24),   -- fond des listes
+	Text = Color3.fromRGB(246, 247, 255),
+	Sub = Color3.fromRGB(152, 162, 194),
+	Gold = Color3.fromRGB(255, 204, 64),
+	Good = Color3.fromRGB(46, 204, 113),
+	Bad = Color3.fromRGB(242, 72, 92),
+	Blue = Color3.fromRGB(60, 150, 255),
+	Muted = Color3.fromRGB(74, 81, 110),
 }
+local ACCENT = {
+	Forge = Color3.fromRGB(255, 140, 40),
+	Ores = Color3.fromRGB(52, 150, 255),
+	Weapons = Color3.fromRGB(240, 70, 110),
+	Upgrades = Color3.fromRGB(40, 200, 120),
+	Teleport = Color3.fromRGB(140, 90, 255),
+	Rebirth = Color3.fromRGB(230, 80, 200),
+}
+local FONT_TITLE = Enum.Font.FredokaOne
+local FONT_BOLD = Enum.Font.GothamBold
+local FONT_BODY = Enum.Font.GothamMedium
+local WHITE = Color3.new(1, 1, 1)
 
 local state = nil        -- dernières données reçues du serveur
 local forgeSelection = {} -- { [idMinerai] = quantité choisie }
@@ -2148,6 +2191,9 @@ local forgeSelection = {} -- { [idMinerai] = quantité choisie }
 ------------------------------------------------------------------------
 local function new(className, props)
 	local instance = Instance.new(className)
+	if instance:IsA("GuiObject") then
+		instance.BorderSizePixel = 0
+	end
 	local parent = nil
 	for key, value in pairs(props or {}) do
 		if key == "Parent" then
@@ -2162,60 +2208,123 @@ local function new(className, props)
 	return instance
 end
 
-local function addCorner(parent, radius)
-	return new("UICorner", { CornerRadius = UDim.new(0, radius or 10), Parent = parent })
+local function darken(color, amount)
+	return color:Lerp(Color3.new(0, 0, 0), amount)
 end
 
-local function addStroke(parent, color, thickness)
+local function lighten(color, amount)
+	return color:Lerp(WHITE, amount)
+end
+
+-- Coins arrondis : un nombre = rayon en pixels, rien = complètement rond (pilule)
+local function corner(parent, radius)
+	return new("UICorner", { CornerRadius = radius and UDim.new(0, radius) or UDim.new(1, 0), Parent = parent })
+end
+
+local function outline(parent, color, thickness, transparency)
 	return new("UIStroke", {
-		Color = color or Color3.new(0, 0, 0),
-		Thickness = thickness or 2,
+		Color = color,
+		Thickness = thickness or 1.5,
+		Transparency = transparency or 0,
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		Parent = parent,
 	})
 end
 
-local function addPadding(parent, pixels)
-	return new("UIPadding", {
-		PaddingTop = UDim.new(0, pixels),
-		PaddingBottom = UDim.new(0, pixels),
-		PaddingLeft = UDim.new(0, pixels),
-		PaddingRight = UDim.new(0, pixels),
+-- Léger dégradé : le haut est plus clair que le bas (effet "bouton de jeu")
+local function gloss(parent)
+	return new("UIGradient", {
+		Rotation = 90,
+		Color = ColorSequence.new(WHITE, Color3.fromRGB(196, 198, 214)),
 		Parent = parent,
 	})
 end
 
-local function makeLabel(parent, props)
-	local label = new("TextLabel", {
+local function padding(parent, top, right, bottom, left)
+	return new("UIPadding", {
+		PaddingTop = UDim.new(0, top),
+		PaddingRight = UDim.new(0, right or top),
+		PaddingBottom = UDim.new(0, bottom or top),
+		PaddingLeft = UDim.new(0, left or right or top),
+		Parent = parent,
+	})
+end
+
+local function listLayout(parent, gap, props)
+	local layout = new("UIListLayout", { Padding = UDim.new(0, gap or 0), SortOrder = Enum.SortOrder.LayoutOrder })
+	for key, value in pairs(props or {}) do
+		layout[key] = value
+	end
+	layout.Parent = parent
+	return layout
+end
+
+local function label(parent, props)
+	local text = new("TextLabel", {
 		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamBold,
-		TextColor3 = COLORS.Text,
-		TextSize = 16,
+		Font = FONT_BOLD,
+		TextColor3 = THEME.Text,
+		TextSize = 15,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = "",
 	})
 	for key, value in pairs(props) do
-		label[key] = value
+		text[key] = value
 	end
-	label.Parent = parent
-	return label
+	text.Parent = parent
+	return text
 end
 
+-- Petite animation : grossit au survol, s'écrase quand on appuie
+local function pressEffect(button)
+	local scale = new("UIScale", { Parent = button })
+	local function scaleTo(value, duration)
+		TweenService:Create(scale, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = value }):Play()
+	end
+	button.MouseEnter:Connect(function()
+		scaleTo(1.05, 0.12)
+	end)
+	button.MouseLeave:Connect(function()
+		scaleTo(1, 0.12)
+	end)
+	button.MouseButton1Down:Connect(function()
+		scaleTo(0.93, 0.06)
+	end)
+	button.MouseButton1Up:Connect(function()
+		scaleTo(1.05, 0.1)
+	end)
+end
+
+-- Bouton arrondi (pilule) avec dégradé, contour et animation
 local function makeButton(parent, text, color, props)
 	local button = new("TextButton", {
+		AutoButtonColor = false,
 		BackgroundColor3 = color,
 		Text = text,
-		Font = Enum.Font.FredokaOne,
-		TextColor3 = Color3.new(1, 1, 1),
-		TextSize = 18,
-		AutoButtonColor = true,
+		Font = FONT_TITLE,
+		TextSize = 17,
+		TextColor3 = WHITE,
+		TextStrokeColor3 = darken(color, 0.6),
+		TextStrokeTransparency = 0.65,
 	})
-	addCorner(button, 8)
+	corner(button)
+	gloss(button)
+	outline(button, darken(color, 0.45), 2)
 	for key, value in pairs(props or {}) do
 		button[key] = value
 	end
 	button.Parent = parent
+	pressEffect(button)
 	return button
+end
+
+local function recolor(button, color)
+	button.BackgroundColor3 = color
+	button.TextStrokeColor3 = darken(color, 0.6)
+	local stroke = button:FindFirstChildOfClass("UIStroke")
+	if stroke then
+		stroke.Color = darken(color, 0.45)
+	end
 end
 
 -- Bouton qui demande une confirmation ("Sûr ?") avant d'agir
@@ -2242,18 +2351,100 @@ local function confirmButton(button, normalText, onConfirm)
 	end)
 end
 
--- Adapte la taille de l'interface à l'écran (PC, tablette, téléphone)
-local scales = {}
-local function addScale(frame)
-	table.insert(scales, new("UIScale", { Parent = frame }))
-end
-local function updateScale()
-	local camera = workspace.CurrentCamera
-	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
-	local scale = math.clamp(math.min(viewport.X / 1280, viewport.Y / 720), 0.5, 1.25)
-	for _, uiScale in ipairs(scales) do
-		uiScale.Scale = scale
+-- Panneau "verre" sombre aux coins arrondis
+local function glassFrame(props, radius)
+	local frame = new("Frame", { BackgroundColor3 = THEME.Glass, BackgroundTransparency = 0.06 })
+	for key, value in pairs(props) do
+		if key ~= "Parent" then
+			frame[key] = value
+		end
 	end
+	corner(frame, radius or 18)
+	outline(frame, WHITE, 1.5, 0.86)
+	frame.Parent = props.Parent
+	return frame
+end
+
+-- Texte foncé sur les couleurs claires, blanc sur les couleurs foncées
+local function textOn(color)
+	local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+	if luminance > 0.62 then
+		return THEME.Glass
+	end
+	return WHITE
+end
+
+-- Petite pastille colorée (ex : qualité d'une arme)
+local function chip(parent, text, color, props)
+	local holder = new("Frame", {
+		Size = UDim2.new(0, 0, 0, 22),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = color,
+		BackgroundTransparency = 0.15,
+	})
+	for key, value in pairs(props or {}) do
+		holder[key] = value
+	end
+	corner(holder)
+	padding(holder, 0, 10, 0, 10)
+	listLayout(holder, 0, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center })
+	label(holder, {
+		Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
+		Text = text,
+		Font = FONT_TITLE,
+		TextSize = 13,
+		TextColor3 = textOn(color),
+	})
+	holder.Parent = parent
+	return holder
+end
+
+-- Barre de progression arrondie
+local function progressBar(parent, color, props)
+	local back = new("Frame", { BackgroundColor3 = THEME.Inset, BackgroundTransparency = 0.1 })
+	for key, value in pairs(props) do
+		back[key] = value
+	end
+	corner(back)
+	outline(back, WHITE, 1, 0.88)
+	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = color, Parent = back })
+	corner(fill)
+	gloss(fill)
+	local text = label(back, {
+		Size = UDim2.fromScale(1, 1),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Font = FONT_TITLE,
+		TextSize = 15,
+		TextStrokeTransparency = 0.5,
+		ZIndex = 2,
+	})
+	back.Parent = parent
+	return back, fill, text
+end
+
+local function setProgress(fill, ratio)
+	ratio = math.clamp(ratio, 0, 1)
+	fill.Visible = ratio > 0.001
+	fill.Size = UDim2.fromScale(math.max(ratio, 0.04), 1)
+end
+
+-- Rond coloré (couleur d'un minerai)
+local function swatch(parent, color, size, props)
+	local dot = new("Frame", {
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 10, 0.5, 0),
+		Size = UDim2.fromOffset(size or 30, size or 30),
+		BackgroundColor3 = color,
+	})
+	for key, value in pairs(props or {}) do
+		dot[key] = value
+	end
+	corner(dot)
+	gloss(dot)
+	outline(dot, darken(color, 0.5), 2)
+	dot.Parent = parent
+	return dot
 end
 
 local function getEquippedWeapon(data)
@@ -2290,52 +2481,60 @@ local gui = new("ScreenGui", {
 	Parent = playerGui,
 })
 
--- Notifications (en haut au centre)
+-- Taille de l'interface adaptée à l'écran (PC, tablette, téléphone)
+local scales = {}
+local function addScale(frame)
+	table.insert(scales, new("UIScale", { Parent = frame }))
+end
+
+------------------------------------------------------------------------
+-- NOTIFICATIONS (en haut au centre)
+------------------------------------------------------------------------
 local notifFrame = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 8),
-	Size = UDim2.fromOffset(560, 10),
+	Position = UDim2.new(0.5, 0, 0, 10),
+	Size = UDim2.fromOffset(540, 10),
 	BackgroundTransparency = 1,
+	ZIndex = 10, -- toujours au-dessus des fenêtres
 	Parent = gui,
 })
 addScale(notifFrame)
-new("UIListLayout", {
-	Padding = UDim.new(0, 6),
-	SortOrder = Enum.SortOrder.LayoutOrder,
-	HorizontalAlignment = Enum.HorizontalAlignment.Center,
-	Parent = notifFrame,
-})
+listLayout(notifFrame, 8, { HorizontalAlignment = Enum.HorizontalAlignment.Center })
 
 local notifCount = 0
 local function showNotification(text, color)
+	color = color or THEME.Text
 	notifCount = notifCount + 1
-	local label = new("TextLabel", {
+	local toast = new("Frame", {
 		LayoutOrder = notifCount,
 		Size = UDim2.new(1, 0, 0, 0),
 		AutomaticSize = Enum.AutomaticSize.Y,
-		BackgroundColor3 = COLORS.Panel,
-		BackgroundTransparency = 0.1,
-		Text = text,
-		TextColor3 = color or COLORS.Text,
-		TextWrapped = true,
-		Font = Enum.Font.FredokaOne,
-		TextSize = 19,
+		BackgroundColor3 = THEME.Glass,
+		BackgroundTransparency = 0.04,
 		Parent = notifFrame,
 	})
-	addCorner(label, 10)
-	new("UIPadding", {
-		PaddingTop = UDim.new(0, 6),
-		PaddingBottom = UDim.new(0, 6),
-		PaddingLeft = UDim.new(0, 12),
-		PaddingRight = UDim.new(0, 12),
-		Parent = label,
+	corner(toast, 16)
+	local stroke = outline(toast, color, 2, 0.35)
+	padding(toast, 10, 16, 10, 16)
+	listLayout(toast, 0)
+	local text = label(toast, {
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		Text = text,
+		TextColor3 = color,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Font = FONT_TITLE,
+		TextSize = 19,
 	})
-	local stroke = addStroke(label, Color3.new(0, 0, 0), 2)
+	-- Apparition avec un petit rebond
+	local pop = new("UIScale", { Scale = 0.85, Parent = toast })
+	TweenService:Create(pop, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
 
 	-- Pas plus de 4 notifications à la fois
 	local items = {}
 	for _, child in ipairs(notifFrame:GetChildren()) do
-		if child:IsA("TextLabel") then
+		if child:IsA("Frame") then
 			table.insert(items, child)
 		end
 	end
@@ -2349,147 +2548,212 @@ local function showNotification(text, color)
 	end
 
 	task.delay(4, function()
-		if label.Parent then
-			local info = TweenInfo.new(0.5)
-			TweenService:Create(label, info, { TextTransparency = 1, BackgroundTransparency = 1 }):Play()
+		if toast.Parent then
+			local info = TweenInfo.new(0.4)
+			TweenService:Create(toast, info, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(text, info, { TextTransparency = 1 }):Play()
 			TweenService:Create(stroke, info, { Transparency = 1 }):Play()
-			task.delay(0.55, function()
-				label:Destroy()
+			task.delay(0.45, function()
+				toast:Destroy()
 			end)
 		end
 	end)
 end
 
--- Butin (à droite) : "+1 Rubis", "+12 💰"
+------------------------------------------------------------------------
+-- BUTIN (à droite) : bulles "+1 Rubis", "+12 💰"
+------------------------------------------------------------------------
 local lootFeed = new("Frame", {
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -12, 0.5, 0),
-	Size = UDim2.fromOffset(240, 260),
+	Position = UDim2.new(1, -14, 0.5, 0),
+	Size = UDim2.fromOffset(240, 280),
 	BackgroundTransparency = 1,
 	Parent = gui,
 })
 addScale(lootFeed)
-new("UIListLayout", {
-	Padding = UDim.new(0, 2),
-	SortOrder = Enum.SortOrder.LayoutOrder,
+listLayout(lootFeed, 6, {
 	VerticalAlignment = Enum.VerticalAlignment.Bottom,
 	HorizontalAlignment = Enum.HorizontalAlignment.Right,
-	Parent = lootFeed,
 })
 
 local lootCount = 0
-local function showLoot(text, color)
+local function showLoot(text, color, dotColor)
 	lootCount = lootCount + 1
-	local label = new("TextLabel", {
+	local bubble = new("Frame", {
 		LayoutOrder = lootCount,
-		Size = UDim2.fromOffset(240, 28),
-		BackgroundTransparency = 1,
+		Size = UDim2.new(0, 0, 0, 32),
+		AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = THEME.Glass,
+		BackgroundTransparency = 0.2,
+		Parent = lootFeed,
+	})
+	corner(bubble)
+	padding(bubble, 0, 14, 0, 8)
+	listLayout(bubble, 8, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center })
+	local dot = new("Frame", { LayoutOrder = 1, Size = UDim2.fromOffset(16, 16), BackgroundColor3 = dotColor or color, Parent = bubble })
+	corner(dot)
+	outline(dot, darken(dotColor or color, 0.5), 1.5)
+	local text = label(bubble, {
+		LayoutOrder = 2,
+		Size = UDim2.new(0, 0, 1, 0),
+		AutomaticSize = Enum.AutomaticSize.X,
 		Text = text,
 		TextColor3 = color,
-		Font = Enum.Font.FredokaOne,
-		TextSize = 24,
-		TextXAlignment = Enum.TextXAlignment.Right,
-		TextStrokeTransparency = 0,
-		Parent = lootFeed,
+		Font = FONT_TITLE,
+		TextSize = 19,
 	})
 	local items = {}
 	for _, child in ipairs(lootFeed:GetChildren()) do
-		if child:IsA("TextLabel") then
+		if child:IsA("Frame") then
 			table.insert(items, child)
 		end
 	end
-	if #items > 8 then
+	if #items > 7 then
 		table.sort(items, function(a, b)
 			return a.LayoutOrder < b.LayoutOrder
 		end)
-		for i = 1, #items - 8 do
+		for i = 1, #items - 7 do
 			items[i]:Destroy()
 		end
 	end
-	task.delay(2.2, function()
-		if label.Parent then
-			TweenService:Create(label, TweenInfo.new(0.4), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-			task.delay(0.45, function()
-				label:Destroy()
+	task.delay(2.4, function()
+		if bubble.Parent then
+			local info = TweenInfo.new(0.35)
+			TweenService:Create(bubble, info, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(dot, info, { BackgroundTransparency = 1 }):Play()
+			TweenService:Create(text, info, { TextTransparency = 1 }):Play()
+			task.delay(0.4, function()
+				bubble:Destroy()
 			end)
 		end
 	end)
 end
 
--- Stats (à gauche)
+------------------------------------------------------------------------
+-- STATS (à gauche) : pastilles arrondies + carte d'infos
+------------------------------------------------------------------------
 local statsFrame = new("Frame", {
 	Name = "Stats",
 	AnchorPoint = Vector2.new(0, 0.5),
-	Position = UDim2.new(0, 12, 0.5, -10),
-	Size = UDim2.fromOffset(270, 0),
+	Position = UDim2.new(0, 14, 0.5, -10),
+	Size = UDim2.fromOffset(236, 0),
 	AutomaticSize = Enum.AutomaticSize.Y,
-	BackgroundColor3 = COLORS.Panel,
-	BackgroundTransparency = 0.15,
+	BackgroundTransparency = 1,
 	Parent = gui,
 })
-addCorner(statsFrame, 12)
-addStroke(statsFrame, Color3.new(0, 0, 0), 2)
 addScale(statsFrame)
-addPadding(statsFrame, 10)
-new("UIListLayout", { Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder, Parent = statsFrame })
+listLayout(statsFrame, 8)
 
-local function statLine(order, color)
-	return makeLabel(statsFrame, {
+local function statPill(order, icon, title, color)
+	local pill = new("Frame", {
 		LayoutOrder = order,
-		Size = UDim2.new(1, 0, 0, 22),
-		TextColor3 = color,
-		TextSize = 18,
-		Font = Enum.Font.FredokaOne,
+		Size = UDim2.new(1, 0, 0, 50),
+		BackgroundColor3 = THEME.Glass,
+		BackgroundTransparency = 0.08,
+		Parent = statsFrame,
+	})
+	corner(pill)
+	outline(pill, color, 1.5, 0.5)
+	local bubble = swatch(pill, color, 40, { Position = UDim2.new(0, 5, 0.5, 0) })
+	label(bubble, {
+		Size = UDim2.fromScale(1, 1),
+		Text = icon,
+		TextSize = 21,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	label(pill, {
+		Position = UDim2.fromOffset(54, 7),
+		Size = UDim2.new(1, -66, 0, 12),
+		Text = title,
+		TextSize = 11,
+		TextColor3 = THEME.Sub,
+	})
+	return label(pill, {
+		Position = UDim2.fromOffset(54, 20),
+		Size = UDim2.new(1, -66, 0, 24),
+		Text = "…",
+		Font = FONT_TITLE,
+		TextSize = 22,
 		TextTruncate = Enum.TextTruncate.AtEnd,
-		Text = "Chargement...",
 	})
 end
-local powerLabel = statLine(1, COLORS.Orange)
-local damageLabel = statLine(2, Color3.fromRGB(255, 110, 110))
-local coinsLabel = statLine(3, COLORS.Gold)
-local oresLabel = statLine(4, Color3.fromRGB(110, 170, 255))
-local rebirthLabel = statLine(5, Color3.fromRGB(200, 140, 255))
-local weaponLabel = statLine(6, COLORS.Text)
-local trainingLabel = statLine(7, Color3.fromRGB(110, 230, 140))
-trainingLabel.Visible = false
-local goalLabel = makeLabel(statsFrame, {
-	LayoutOrder = 8,
+
+local powerLabel = statPill(1, "💪", "PUISSANCE", Color3.fromRGB(255, 140, 40))
+local damageLabel = statPill(2, "⚔", "DÉGÂTS", Color3.fromRGB(242, 72, 92))
+local coinsLabel = statPill(3, "💰", "PIÈCES", Color3.fromRGB(255, 196, 40))
+local oresLabel = statPill(4, "🎒", "MINERAIS", Color3.fromRGB(52, 150, 255))
+
+local infoCard = glassFrame({
+	LayoutOrder = 5,
+	Size = UDim2.new(1, 0, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	Parent = statsFrame,
+}, 18)
+padding(infoCard, 12, 14, 12, 14)
+listLayout(infoCard, 6)
+local weaponLabel = label(infoCard, {
+	LayoutOrder = 1,
+	Size = UDim2.new(1, 0, 0, 20),
+	Font = FONT_TITLE,
+	TextSize = 17,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+})
+local rebirthLabel = label(infoCard, {
+	LayoutOrder = 2,
+	Size = UDim2.new(1, 0, 0, 16),
+	TextSize = 13,
+	TextColor3 = Color3.fromRGB(205, 160, 255),
+})
+local trainingChip = chip(infoCard, "", THEME.Good, { LayoutOrder = 3, Visible = false, Size = UDim2.new(0, 0, 0, 24) })
+local trainingLabel = trainingChip:FindFirstChildOfClass("TextLabel")
+local goalLabel = label(infoCard, {
+	LayoutOrder = 4,
 	Size = UDim2.new(1, 0, 0, 0),
 	AutomaticSize = Enum.AutomaticSize.Y,
 	TextWrapped = true,
-	TextSize = 14,
-	Font = Enum.Font.GothamMedium,
-	TextColor3 = COLORS.Sub,
+	TextSize = 13,
+	Font = FONT_BODY,
+	TextColor3 = Color3.fromRGB(205, 212, 235),
 })
 
--- Fenêtre des menus (au centre)
-local window = new("Frame", {
+------------------------------------------------------------------------
+-- FENÊTRE DES MENUS (au centre)
+------------------------------------------------------------------------
+local WINDOW_SIZE = Vector2.new(660, 450)
+local window = glassFrame({
 	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.fromScale(0.5, 0.46),
-	Size = UDim2.fromOffset(620, 430),
-	BackgroundColor3 = COLORS.Panel,
+	Position = UDim2.fromScale(0.5, 0.45),
+	Size = UDim2.fromOffset(WINDOW_SIZE.X, WINDOW_SIZE.Y),
+	BackgroundTransparency = 0.03,
 	Visible = false,
 	Parent = gui,
+}, 26)
+local windowScale = new("UIScale", { Parent = window })
+local header = new("Frame", {
+	Position = UDim2.fromOffset(10, 10),
+	Size = UDim2.new(1, -20, 0, 56),
+	BackgroundColor3 = ACCENT.Forge,
+	Parent = window,
 })
-addCorner(window, 14)
-addStroke(window, Color3.new(0, 0, 0), 3)
-addScale(window)
-local titleLabel = makeLabel(window, {
-	Position = UDim2.fromOffset(18, 8),
-	Size = UDim2.new(1, -80, 0, 40),
-	Font = Enum.Font.FredokaOne,
-	TextSize = 28,
-	TextColor3 = COLORS.Gold,
+corner(header, 18)
+gloss(header)
+local headerStroke = outline(header, darken(ACCENT.Forge, 0.45), 2)
+local titleLabel = label(header, {
+	Position = UDim2.fromOffset(18, 0),
+	Size = UDim2.new(1, -80, 1, 0),
+	Font = FONT_TITLE,
+	TextSize = 27,
+	TextStrokeTransparency = 0.55,
 })
-local closeButton = makeButton(window, "X", COLORS.Bad, {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -10, 0, 10),
+local closeButton = makeButton(header, "✕", THEME.Bad, {
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -10, 0.5, 0),
 	Size = UDim2.fromOffset(38, 38),
-	TextSize = 22,
+	TextSize = 20,
 })
 local content = new("Frame", {
-	Position = UDim2.fromOffset(14, 56),
-	Size = UDim2.new(1, -28, 1, -70),
+	Position = UDim2.fromOffset(16, 80),
+	Size = UDim2.new(1, -32, 1, -96),
 	BackgroundTransparency = 1,
 	Parent = window,
 })
@@ -2500,9 +2764,11 @@ end
 
 local function makeScroll(parent, props, useGrid)
 	local scroll = new("ScrollingFrame", {
-		BackgroundColor3 = COLORS.Dark,
-		BorderSizePixel = 0,
-		ScrollBarThickness = 8,
+		BackgroundColor3 = THEME.Inset,
+		BackgroundTransparency = 0.25,
+		ScrollBarThickness = 5,
+		ScrollBarImageColor3 = WHITE,
+		ScrollBarImageTransparency = 0.6,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		ScrollingDirection = Enum.ScrollingDirection.Y,
@@ -2511,24 +2777,18 @@ local function makeScroll(parent, props, useGrid)
 		scroll[key] = value
 	end
 	scroll.Parent = parent
-	addCorner(scroll, 10)
+	corner(scroll, 16)
 	if useGrid then
 		new("UIGridLayout", {
-			CellSize = UDim2.fromOffset(180, 66),
+			CellSize = UDim2.fromOffset(190, 78),
 			CellPadding = UDim2.fromOffset(8, 8),
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = scroll,
 		})
 	else
-		new("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll })
+		listLayout(scroll, 8)
 	end
-	new("UIPadding", {
-		PaddingTop = UDim.new(0, 6),
-		PaddingBottom = UDim.new(0, 6),
-		PaddingLeft = UDim.new(0, 6),
-		PaddingRight = UDim.new(0, 14),
-		Parent = scroll,
-	})
+	padding(scroll, 8, 14, 8, 8)
 	return scroll
 end
 
@@ -2543,41 +2803,41 @@ end
 local function makeRow(parent, order, height)
 	local row = new("Frame", {
 		LayoutOrder = order,
-		Size = UDim2.new(1, 0, 0, height or 50),
-		BackgroundColor3 = COLORS.Row,
+		Size = UDim2.new(1, 0, 0, height or 56),
+		BackgroundColor3 = THEME.Card,
 		Parent = parent,
 	})
-	addCorner(row, 8)
+	corner(row, 16)
+	outline(row, WHITE, 1, 0.92)
 	return row
 end
 
-local function makeSwatch(row, color)
-	local swatch = new("Frame", {
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 8, 0.5, 0),
-		Size = UDim2.fromOffset(28, 28),
-		BackgroundColor3 = color,
-		Parent = row,
-	})
-	addCorner(swatch, 6)
-	addStroke(swatch, Color3.new(0, 0, 0), 1.5)
-	return swatch
-end
-
 local function emptyMessage(list, text)
-	local row = makeRow(list, 0, 70)
-	makeLabel(row, {
-		Position = UDim2.fromOffset(10, 0),
-		Size = UDim2.new(1, -20, 1, 0),
+	local row = makeRow(list, 0, 74)
+	label(row, {
+		Position = UDim2.fromOffset(16, 0),
+		Size = UDim2.new(1, -32, 1, 0),
 		TextWrapped = true,
 		Text = text,
-		TextColor3 = COLORS.Sub,
-		Font = Enum.Font.GothamMedium,
+		TextColor3 = THEME.Sub,
+		Font = FONT_BODY,
 		TextSize = 15,
 	})
 end
 
+-- En-tête de panneau : texte à gauche + éléments à droite
+local function panelHeader(parent, height)
+	local bar = new("Frame", { Size = UDim2.new(1, 0, 0, height or 36), BackgroundTransparency = 1, Parent = parent })
+	local text = label(bar, {
+		Size = UDim2.new(1, -200, 1, 0),
+		Font = FONT_TITLE,
+		TextSize = 20,
+	})
+	return bar, text
+end
+
 local refreshPanel -- défini plus bas
+local closeWindow -- défini plus bas
 
 ------------------------------------------------------------------------
 -- MENU : FORGE
@@ -2587,28 +2847,29 @@ local forgeList = makeScroll(forgePanel, { Size = UDim2.new(0.6, -6, 1, 0) })
 local forgeSide = new("Frame", {
 	Position = UDim2.new(0.6, 6, 0, 0),
 	Size = UDim2.new(0.4, -6, 1, 0),
-	BackgroundColor3 = COLORS.Row,
+	BackgroundColor3 = THEME.Card,
 	Parent = forgePanel,
 })
-addCorner(forgeSide, 10)
-addPadding(forgeSide, 10)
-local forgeInfo = makeLabel(forgeSide, {
-	Size = UDim2.new(1, 0, 1, -100),
+corner(forgeSide, 18)
+outline(forgeSide, WHITE, 1, 0.9)
+padding(forgeSide, 14)
+local forgeInfo = label(forgeSide, {
+	Size = UDim2.new(1, 0, 1, -112),
 	TextWrapped = true,
 	RichText = true,
 	TextYAlignment = Enum.TextYAlignment.Top,
-	Font = Enum.Font.GothamMedium,
+	Font = FONT_BODY,
 	TextSize = 15,
 })
-local forgeClear = makeButton(forgeSide, "Vider", COLORS.Disabled, {
+local forgeClear = makeButton(forgeSide, "Vider", THEME.Muted, {
 	AnchorPoint = Vector2.new(0, 1),
-	Position = UDim2.new(0, 0, 1, -52),
-	Size = UDim2.new(1, 0, 0, 38),
+	Position = UDim2.new(0, 0, 1, -58),
+	Size = UDim2.new(1, 0, 0, 40),
 })
-local forgeButton = makeButton(forgeSide, "⚒ FORGER", COLORS.Orange, {
+local forgeButton = makeButton(forgeSide, "⚒ FORGER", ACCENT.Forge, {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.new(0, 0, 1, 0),
-	Size = UDim2.new(1, 0, 0, 46),
+	Size = UDim2.new(1, 0, 0, 50),
 	TextSize = 24,
 })
 
@@ -2626,7 +2887,7 @@ local function setSelection(oreId, count)
 	count = math.max(0, math.min(owned(oreId), count))
 	local current = forgeSelection[oreId] or 0
 	if current == 0 and count > 0 and countSelectionTypes() >= Config.MaxOreTypes then
-		showNotification("Maximum " .. Config.MaxOreTypes .. " types de minerais par arme !", COLORS.Bad)
+		showNotification("Maximum " .. Config.MaxOreTypes .. " types de minerais par arme !", THEME.Bad)
 		return
 	end
 	if count == 0 then
@@ -2656,50 +2917,58 @@ local function refreshForge()
 		if have > 0 then
 			any = true
 			local selected = forgeSelection[ore.Id] or 0
-			local row = makeRow(forgeList, #Config.Ores - index, 52)
-			makeSwatch(row, ore.Color)
-			makeLabel(row, {
-				Position = UDim2.fromOffset(44, 5),
-				Size = UDim2.new(1, -200, 0, 22),
+			local row = makeRow(forgeList, #Config.Ores - index, 56)
+			swatch(row, ore.Color)
+			label(row, {
+				Position = UDim2.fromOffset(50, 8),
+				Size = UDim2.new(1, -224, 0, 22),
 				Text = ore.Name,
 				TextColor3 = Config.Rarities[ore.Rarity],
 				TextSize = 17,
-				Font = Enum.Font.FredokaOne,
+				Font = FONT_TITLE,
 				TextTruncate = Enum.TextTruncate.AtEnd,
 			})
-			makeLabel(row, {
-				Position = UDim2.fromOffset(44, 27),
-				Size = UDim2.new(1, -200, 0, 18),
+			label(row, {
+				Position = UDim2.fromOffset(50, 30),
+				Size = UDim2.new(1, -224, 0, 16),
 				Text = "×" .. Config.Format(ore.Mult) .. "  •  tu as " .. have,
-				TextColor3 = COLORS.Sub,
-				TextSize = 13,
-				Font = Enum.Font.GothamMedium,
+				TextColor3 = THEME.Sub,
+				TextSize = 12,
+				Font = FONT_BODY,
 			})
-			local minus = makeButton(row, "-", COLORS.Bad, {
+			local minus = makeButton(row, "−", THEME.Bad, {
 				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -124, 0.5, 0),
-				Size = UDim2.fromOffset(30, 30),
-			})
-			makeLabel(row, {
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -88, 0.5, 0),
-				Size = UDim2.fromOffset(34, 30),
-				Text = tostring(selected),
-				TextXAlignment = Enum.TextXAlignment.Center,
-				TextColor3 = selected > 0 and COLORS.Gold or COLORS.Sub,
-				Font = Enum.Font.FredokaOne,
+				Position = UDim2.new(1, -138, 0.5, 0),
+				Size = UDim2.fromOffset(32, 32),
 				TextSize = 20,
 			})
-			local plus = makeButton(row, "+", COLORS.Good, {
+			local countBox = new("Frame", {
 				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -54, 0.5, 0),
-				Size = UDim2.fromOffset(30, 30),
+				Position = UDim2.new(1, -98, 0.5, 0),
+				Size = UDim2.fromOffset(36, 30),
+				BackgroundColor3 = THEME.Inset,
+				Parent = row,
 			})
-			local maxButton = makeButton(row, "Max", COLORS.Blue, {
+			corner(countBox, 10)
+			label(countBox, {
+				Size = UDim2.fromScale(1, 1),
+				Text = tostring(selected),
+				TextXAlignment = Enum.TextXAlignment.Center,
+				TextColor3 = selected > 0 and THEME.Gold or THEME.Sub,
+				Font = FONT_TITLE,
+				TextSize = 18,
+			})
+			local plus = makeButton(row, "+", THEME.Good, {
 				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -6, 0.5, 0),
-				Size = UDim2.fromOffset(44, 30),
-				TextSize = 15,
+				Position = UDim2.new(1, -58, 0.5, 0),
+				Size = UDim2.fromOffset(32, 32),
+				TextSize = 20,
+			})
+			local maxButton = makeButton(row, "Max", THEME.Blue, {
+				AnchorPoint = Vector2.new(1, 0.5),
+				Position = UDim2.new(1, -8, 0.5, 0),
+				Size = UDim2.fromOffset(44, 32),
+				TextSize = 14,
 			})
 			minus.Activated:Connect(function()
 				setSelection(ore.Id, (forgeSelection[ore.Id] or 0) - 1)
@@ -2724,28 +2993,28 @@ local function refreshForge()
 	}
 	if preview.Ok then
 		local kind = Config.WeaponKinds[preview.Kind]
-		table.insert(lines, "<b>Arme :</b> " .. colorTag(COLORS.Orange, kind.Name .. " " .. Config.OreById[preview.MainOre].Of))
-		table.insert(lines, "<b>Dégâts :</b> " .. colorTag(COLORS.Gold, "×" .. Config.Format(preview.Mult)) .. " (+ qualité)")
+		table.insert(lines, "<b>Arme :</b> " .. colorTag(ACCENT.Forge, kind.Name .. " " .. Config.OreById[preview.MainOre].Of))
+		table.insert(lines, "<b>Dégâts :</b> " .. colorTag(THEME.Gold, "×" .. Config.Format(preview.Mult)) .. " (+ qualité)")
 		if kind.AoE then
-			table.insert(lines, colorTag(COLORS.Sub, "Lent, mais frappe TOUS les monstres autour."))
+			table.insert(lines, colorTag(THEME.Sub, "Lent, mais frappe TOUS les monstres autour."))
 		else
-			table.insert(lines, colorTag(COLORS.Sub, "Rapide, frappe un monstre à la fois."))
+			table.insert(lines, colorTag(THEME.Sub, "Rapide, frappe un monstre à la fois."))
 		end
 	else
-		table.insert(lines, colorTag(Color3.fromRGB(255, 120, 120), preview.Error or ""))
+		table.insert(lines, colorTag(Color3.fromRGB(255, 125, 135), preview.Error or ""))
 	end
 	table.insert(lines, "")
-	table.insert(lines, colorTag(COLORS.Sub, Config.MinOres .. "-" .. (Config.GreatswordOres - 1) .. " minerais = Katana"))
-	table.insert(lines, colorTag(COLORS.Sub, Config.GreatswordOres .. "+ minerais = Espadon"))
-	table.insert(lines, colorTag(COLORS.Sub, "Qualité au hasard : jusqu'à ×" .. Config.Qualities[#Config.Qualities].Mult .. " !"))
+	table.insert(lines, colorTag(THEME.Sub, Config.MinOres .. "-" .. (Config.GreatswordOres - 1) .. " minerais = Katana"))
+	table.insert(lines, colorTag(THEME.Sub, Config.GreatswordOres .. "+ minerais = Espadon"))
+	table.insert(lines, colorTag(THEME.Sub, "Qualité au hasard : jusqu'à ×" .. Config.Qualities[#Config.Qualities].Mult .. " !"))
 	forgeInfo.Text = table.concat(lines, "\n")
-	forgeButton.BackgroundColor3 = preview.Ok and COLORS.Orange or COLORS.Disabled
+	recolor(forgeButton, preview.Ok and ACCENT.Forge or THEME.Muted)
 end
 
 forgeButton.Activated:Connect(function()
 	local preview = Config.PreviewForge(forgeSelection)
 	if not preview.Ok then
-		showNotification(preview.Error or "Sélection invalide", COLORS.Bad)
+		showNotification(preview.Error or "Sélection invalide", THEME.Bad)
 		return
 	end
 	local payload = {}
@@ -2774,23 +3043,28 @@ end
 -- MENU : MINERAIS (vendre)
 ------------------------------------------------------------------------
 local oresPanel = makePanelFrame()
-local oresHeader = makeLabel(oresPanel, {
-	Size = UDim2.new(1, -180, 0, 34),
-	Font = Enum.Font.FredokaOne,
-	TextSize = 20,
+local oresBar, oresHeader = panelHeader(oresPanel, 40)
+oresHeader.Size = UDim2.new(0, 120, 1, 0)
+local _, capacityFill, capacityText = progressBar(oresBar, ACCENT.Ores, {
+	AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, 128, 0.5, 0),
+	Size = UDim2.new(1, -290, 0, 24),
 })
-local sellAllButton = makeButton(oresPanel, "Tout vendre", COLORS.Bad, {
-	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, 0, 0, 0),
-	Size = UDim2.fromOffset(170, 34),
+local sellAllButton = makeButton(oresBar, "Tout vendre", THEME.Bad, {
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -4, 0.5, 0),
+	Size = UDim2.fromOffset(146, 38),
 })
 confirmButton(sellAllButton, "Tout vendre", function()
 	Action:FireServer("SellAllOres")
 end)
-local oresList = makeScroll(oresPanel, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })
+local oresList = makeScroll(oresPanel, { Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 1, -50) })
 
 local function refreshOres()
-	oresHeader.Text = "🎒 Minerais : " .. state.OreTotal .. " / " .. state.Capacity
+	oresHeader.Text = "🎒 Ton sac"
+	setProgress(capacityFill, state.OreTotal / math.max(1, state.Capacity))
+	capacityText.Text = state.OreTotal .. " / " .. state.Capacity
+	capacityFill.BackgroundColor3 = state.OreTotal >= state.Capacity and THEME.Bad or ACCENT.Ores
 	clearList(oresList)
 	local any = false
 	for index = #Config.Ores, 1, -1 do
@@ -2798,35 +3072,35 @@ local function refreshOres()
 		local have = owned(ore.Id)
 		if have > 0 then
 			any = true
-			local row = makeRow(oresList, #Config.Ores - index, 52)
-			makeSwatch(row, ore.Color)
-			makeLabel(row, {
-				Position = UDim2.fromOffset(44, 5),
-				Size = UDim2.new(1, -300, 0, 22),
+			local row = makeRow(oresList, #Config.Ores - index, 58)
+			swatch(row, ore.Color)
+			label(row, {
+				Position = UDim2.fromOffset(50, 8),
+				Size = UDim2.new(1, -310, 0, 22),
 				Text = ore.Name .. "  x" .. have,
 				TextColor3 = Config.Rarities[ore.Rarity],
 				TextSize = 18,
-				Font = Enum.Font.FredokaOne,
+				Font = FONT_TITLE,
 				TextTruncate = Enum.TextTruncate.AtEnd,
 			})
-			makeLabel(row, {
-				Position = UDim2.fromOffset(44, 27),
-				Size = UDim2.new(1, -300, 0, 18),
+			label(row, {
+				Position = UDim2.fromOffset(50, 31),
+				Size = UDim2.new(1, -310, 0, 16),
 				Text = ore.Rarity .. "  •  ×" .. Config.Format(ore.Mult) .. "  •  " .. Config.Format(ore.Sell) .. " 💰/u",
-				TextColor3 = COLORS.Sub,
-				TextSize = 13,
-				Font = Enum.Font.GothamMedium,
+				TextColor3 = THEME.Sub,
+				TextSize = 12,
+				Font = FONT_BODY,
 			})
-			local sellOne = makeButton(row, "Vendre 1", COLORS.Blue, {
+			local sellOne = makeButton(row, "Vendre 1", THEME.Blue, {
 				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -124, 0.5, 0),
-				Size = UDim2.fromOffset(100, 34),
+				Position = UDim2.new(1, -132, 0.5, 0),
+				Size = UDim2.fromOffset(104, 36),
 				TextSize = 16,
 			})
-			local sellAll = makeButton(row, "Vendre tout", COLORS.Bad, {
+			local sellAll = makeButton(row, "Vendre tout", THEME.Bad, {
 				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -8, 0.5, 0),
-				Size = UDim2.fromOffset(110, 34),
+				Position = UDim2.new(1, -10, 0.5, 0),
+				Size = UDim2.fromOffset(114, 36),
 				TextSize = 16,
 			})
 			sellOne.Activated:Connect(function()
@@ -2846,55 +3120,73 @@ end
 -- MENU : ARMES
 ------------------------------------------------------------------------
 local weaponsPanel = makePanelFrame()
-local weaponsHeader = makeLabel(weaponsPanel, {
-	Size = UDim2.new(1, 0, 0, 34),
-	Font = Enum.Font.FredokaOne,
-	TextSize = 20,
-})
-local weaponsList = makeScroll(weaponsPanel, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })
+local _, weaponsHeader = panelHeader(weaponsPanel, 40)
+local weaponsList = makeScroll(weaponsPanel, { Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 1, -50) })
 
 local function weaponRow(order, weapon)
 	local data = state.Data
 	local isEquipped = (weapon and weapon.Id or 0) == data.Equipped
-	local row = makeRow(weaponsList, order, 56)
+	local row = makeRow(weaponsList, order, 62)
+	if isEquipped then
+		local stroke = row:FindFirstChildOfClass("UIStroke")
+		stroke.Color = THEME.Gold
+		stroke.Transparency = 0.2
+		stroke.Thickness = 2
+	end
 	local ore = weapon and Config.OreById[weapon.MainOre]
-	makeSwatch(row, ore and ore.Color or Color3.fromRGB(160, 115, 70))
-	local qualityColor = weapon and Config.Rarities[weapon.Quality] or COLORS.Text
-	makeLabel(row, {
-		Position = UDim2.fromOffset(44, 6),
-		Size = UDim2.new(1, -330, 0, 22),
+	swatch(row, ore and ore.Color or Color3.fromRGB(160, 115, 70), 34)
+	local qualityColor = weapon and Config.Rarities[weapon.Quality] or THEME.Text
+	label(row, {
+		Position = UDim2.fromOffset(54, 8),
+		Size = UDim2.new(1, -340, 0, 22),
 		Text = Config.GetWeaponName(weapon),
 		TextColor3 = qualityColor,
 		TextSize = 18,
-		Font = Enum.Font.FredokaOne,
+		Font = FONT_TITLE,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
-	local details = "Arme de départ"
+	local details = new("Frame", {
+		Position = UDim2.fromOffset(54, 33),
+		Size = UDim2.new(1, -340, 0, 20),
+		BackgroundTransparency = 1,
+		Parent = row,
+	})
+	listLayout(details, 6, { FillDirection = Enum.FillDirection.Horizontal, VerticalAlignment = Enum.VerticalAlignment.Center })
 	if weapon then
-		details = "[" .. weapon.Quality .. "]  •  " .. weapon.OreCount .. " minerais"
+		chip(details, weapon.Quality, qualityColor, { LayoutOrder = 1, Size = UDim2.new(0, 0, 0, 20) })
+		label(details, {
+			LayoutOrder = 2,
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Text = weapon.OreCount .. " minerais",
+			TextColor3 = THEME.Sub,
+			TextSize = 12,
+			Font = FONT_BODY,
+		})
+	else
+		label(details, {
+			Size = UDim2.new(0, 0, 1, 0),
+			AutomaticSize = Enum.AutomaticSize.X,
+			Text = "Arme de départ",
+			TextColor3 = THEME.Sub,
+			TextSize = 12,
+			Font = FONT_BODY,
+		})
 	end
-	makeLabel(row, {
-		Position = UDim2.fromOffset(44, 30),
-		Size = UDim2.new(1, -330, 0, 18),
-		Text = details,
-		TextColor3 = COLORS.Sub,
-		TextSize = 13,
-		Font = Enum.Font.GothamMedium,
-	})
-	makeLabel(row, {
+	label(row, {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -226, 0.5, 0),
-		Size = UDim2.fromOffset(80, 30),
+		Position = UDim2.new(1, -240, 0.5, 0),
+		Size = UDim2.fromOffset(84, 30),
 		Text = "×" .. Config.Format(weapon and weapon.Mult or 1),
-		TextColor3 = COLORS.Gold,
+		TextColor3 = THEME.Gold,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Font = Enum.Font.FredokaOne,
-		TextSize = 20,
+		Font = FONT_TITLE,
+		TextSize = 21,
 	})
-	local equipButton = makeButton(row, isEquipped and "Équipée" or "Équiper", isEquipped and COLORS.Disabled or COLORS.Good, {
+	local equipButton = makeButton(row, isEquipped and "Équipée" or "Équiper", isEquipped and THEME.Muted or THEME.Good, {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -124, 0.5, 0),
-		Size = UDim2.fromOffset(96, 34),
+		Position = UDim2.new(1, -128, 0.5, 0),
+		Size = UDim2.fromOffset(100, 36),
 		TextSize = 16,
 	})
 	if not isEquipped then
@@ -2904,11 +3196,11 @@ local function weaponRow(order, weapon)
 	end
 	if weapon then
 		local priceText = "Vendre " .. Config.Format(Config.GetWeaponSellPrice(weapon))
-		local sellButton = makeButton(row, priceText, COLORS.Bad, {
+		local sellButton = makeButton(row, priceText, THEME.Bad, {
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -8, 0.5, 0),
-			Size = UDim2.fromOffset(110, 34),
-			TextSize = 15,
+			Position = UDim2.new(1, -10, 0.5, 0),
+			Size = UDim2.fromOffset(110, 36),
+			TextSize = 14,
 		})
 		confirmButton(sellButton, priceText, function()
 			Action:FireServer("SellWeapon", weapon.Id)
@@ -2918,7 +3210,7 @@ end
 
 local function refreshWeapons()
 	local data = state.Data
-	weaponsHeader.Text = "⚔ Armes : " .. #data.Weapons .. " / " .. Config.MaxWeapons
+	weaponsHeader.Text = "⚔ Tes armes : " .. #data.Weapons .. " / " .. Config.MaxWeapons
 	clearList(weaponsList)
 	local sorted = {}
 	for _, weapon in ipairs(data.Weapons) do
@@ -2946,13 +3238,11 @@ end
 -- MENU : BOUTIQUE (améliorations)
 ------------------------------------------------------------------------
 local upgradesPanel = makePanelFrame()
-local upgradesHeader = makeLabel(upgradesPanel, {
-	Size = UDim2.new(1, 0, 0, 34),
-	Font = Enum.Font.FredokaOne,
-	TextSize = 20,
-	TextColor3 = COLORS.Gold,
-})
-local upgradesList = makeScroll(upgradesPanel, { Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 1, -42) })
+local _, upgradesHeader = panelHeader(upgradesPanel, 40)
+upgradesHeader.TextColor3 = THEME.Gold
+local upgradesList = makeScroll(upgradesPanel, { Position = UDim2.fromOffset(0, 50), Size = UDim2.new(1, 0, 1, -50) })
+
+local UPGRADE_ICONS = { Capacity = "🎒", Luck = "🍀" }
 
 local function upgradeEffect(upgradeId, level)
 	if upgradeId == "Capacity" then
@@ -2963,46 +3253,55 @@ end
 
 local function refreshUpgrades()
 	local data = state.Data
-	upgradesHeader.Text = "💰 Pièces : " .. Config.Format(data.Coins)
+	upgradesHeader.Text = "💰 " .. Config.Format(data.Coins) .. " pièces"
 	clearList(upgradesList)
 	for order, upgradeId in ipairs(Config.UpgradeOrder) do
 		local upgrade = Config.Upgrades[upgradeId]
 		local level = data.Upgrades[upgradeId] or 0
 		local isMax = level >= upgrade.Max
-		local row = makeRow(upgradesList, order, 78)
-		makeLabel(row, {
-			Position = UDim2.fromOffset(12, 6),
-			Size = UDim2.new(1, -180, 0, 24),
-			Text = upgrade.Name .. "  (niv. " .. level .. "/" .. upgrade.Max .. ")",
-			Font = Enum.Font.FredokaOne,
-			TextSize = 19,
+		local row = makeRow(upgradesList, order, 104)
+		local icon = swatch(row, upgradeId == "Capacity" and ACCENT.Ores or ACCENT.Upgrades, 52, { Position = UDim2.new(0, 12, 0.5, 0) })
+		label(icon, { Size = UDim2.fromScale(1, 1), Text = UPGRADE_ICONS[upgradeId] or "⬆", TextSize = 26, TextXAlignment = Enum.TextXAlignment.Center })
+		label(row, {
+			Position = UDim2.fromOffset(78, 10),
+			Size = UDim2.new(1, -260, 0, 24),
+			Text = upgrade.Name,
+			Font = FONT_TITLE,
+			TextSize = 20,
 		})
-		makeLabel(row, {
-			Position = UDim2.fromOffset(12, 31),
-			Size = UDim2.new(1, -180, 0, 18),
+		label(row, {
+			Position = UDim2.fromOffset(78, 35),
+			Size = UDim2.new(1, -260, 0, 16),
 			Text = upgrade.Description,
-			TextColor3 = COLORS.Sub,
-			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
+			TextColor3 = THEME.Sub,
+			Font = FONT_BODY,
+			TextSize = 13,
 		})
-		local effect = "Actuel : " .. upgradeEffect(upgradeId, level)
+		local _, levelFill, levelText = progressBar(row, ACCENT.Upgrades, {
+			Position = UDim2.fromOffset(78, 58),
+			Size = UDim2.new(1, -260, 0, 20),
+		})
+		setProgress(levelFill, level / upgrade.Max)
+		levelText.TextSize = 12
+		levelText.Text = "Niveau " .. level .. " / " .. upgrade.Max
+		local effect = upgradeEffect(upgradeId, level)
 		if not isMax then
 			effect = effect .. "  →  " .. upgradeEffect(upgradeId, level + 1)
 		end
-		makeLabel(row, {
-			Position = UDim2.fromOffset(12, 52),
-			Size = UDim2.new(1, -180, 0, 18),
+		label(row, {
+			Position = UDim2.fromOffset(78, 82),
+			Size = UDim2.new(1, -260, 0, 16),
 			Text = effect,
-			TextColor3 = Color3.fromRGB(120, 220, 150),
-			Font = Enum.Font.GothamMedium,
-			TextSize = 14,
+			TextColor3 = Color3.fromRGB(120, 230, 160),
+			Font = FONT_BODY,
+			TextSize = 12,
 		})
 		local cost = Config.GetUpgradeCost(upgradeId, level)
 		local canBuy = not isMax and data.Coins >= cost
-		local buyButton = makeButton(row, isMax and "MAX" or ("💰 " .. Config.Format(cost)), canBuy and COLORS.Good or COLORS.Disabled, {
+		local buyButton = makeButton(row, isMax and "MAX" or ("💰 " .. Config.Format(cost)), canBuy and THEME.Good or THEME.Muted, {
 			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -10, 0.5, 0),
-			Size = UDim2.fromOffset(150, 46),
+			Position = UDim2.new(1, -14, 0.5, 0),
+			Size = UDim2.fromOffset(150, 50),
 			TextSize = 20,
 		})
 		if not isMax then
@@ -3019,37 +3318,59 @@ end
 local teleportPanel = makePanelFrame()
 local teleportGrid = makeScroll(teleportPanel, { Size = UDim2.fromScale(1, 1) }, true)
 
+local function stageTile(order, color, topText, titleText, bottomText)
+	local tile = makeButton(teleportGrid, "", color, { LayoutOrder = order })
+	local tileCorner = tile:FindFirstChildOfClass("UICorner")
+	tileCorner.CornerRadius = UDim.new(0, 18)
+	label(tile, {
+		Position = UDim2.fromOffset(14, 9),
+		Size = UDim2.new(1, -28, 0, 14),
+		Text = topText,
+		TextSize = 11,
+		TextColor3 = lighten(color, 0.75),
+	})
+	label(tile, {
+		Position = UDim2.fromOffset(14, 24),
+		Size = UDim2.new(1, -28, 0, 24),
+		Text = titleText,
+		Font = FONT_TITLE,
+		TextSize = 18,
+		TextStrokeColor3 = darken(color, 0.6),
+		TextStrokeTransparency = 0.5,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+	})
+	label(tile, {
+		Position = UDim2.fromOffset(14, 50),
+		Size = UDim2.new(1, -28, 0, 16),
+		Text = bottomText,
+		TextSize = 12,
+		Font = FONT_BODY,
+		TextColor3 = lighten(color, 0.8),
+	})
+	return tile
+end
+
 local function refreshTeleport()
 	local data = state.Data
 	clearList(teleportGrid)
-	local hubButton = makeButton(teleportGrid, "🏠 Hub\n(entraînement, forge)", COLORS.Gold, {
-		LayoutOrder = 0,
-		TextSize = 16,
-		TextWrapped = true,
-	})
-	hubButton.Activated:Connect(function()
+	local hubTile = stageTile(0, Color3.fromRGB(240, 170, 40), "RETOUR", "🏠 Hub", "Entraînement, forge…")
+	hubTile.Activated:Connect(function()
 		Action:FireServer("Teleport", 0)
-		window.Visible = false
+		closeWindow()
 	end)
 	for stage, info in ipairs(Config.Stages) do
 		local unlocked = stage <= data.MaxStage
-		local text
+		local tile
 		if unlocked then
-			text = "Étape " .. stage .. " : " .. info.Name .. "\nPV : " .. Config.Format(Config.GetEnemyHP(stage, false))
-				.. "  •  Boss : " .. Config.Format(Config.GetEnemyHP(stage, true))
+			tile = stageTile(stage, info.Floor:Lerp(ACCENT.Teleport, 0.4), "ÉTAPE " .. stage, info.Name,
+				"PV " .. Config.Format(Config.GetEnemyHP(stage, false)) .. "  •  Boss " .. Config.Format(Config.GetEnemyHP(stage, true)))
 		else
-			text = "🔒 Étape " .. stage .. "\nBats le boss de l'étape " .. (stage - 1)
+			tile = stageTile(stage, THEME.Muted, "ÉTAPE " .. stage, "🔒 Verrouillée", "Bats le boss de l'étape " .. (stage - 1))
 		end
-		local button = makeButton(teleportGrid, text, unlocked and info.Floor:Lerp(COLORS.Purple, 0.45) or COLORS.Disabled, {
-			LayoutOrder = stage,
-			TextSize = 14,
-			TextWrapped = true,
-		})
-		addStroke(button, Color3.new(0, 0, 0), 1.5)
-		button.Activated:Connect(function()
+		tile.Activated:Connect(function()
 			Action:FireServer("Teleport", stage)
 			if unlocked then
-				window.Visible = false
+				closeWindow()
 			end
 		end)
 	end
@@ -3059,38 +3380,92 @@ end
 -- MENU : REBIRTH
 ------------------------------------------------------------------------
 local rebirthPanel = makePanelFrame()
-local rebirthInfo = makeLabel(rebirthPanel, {
-	Size = UDim2.new(1, 0, 0, 200),
-	TextWrapped = true,
-	RichText = true,
-	TextYAlignment = Enum.TextYAlignment.Top,
-	Font = Enum.Font.GothamMedium,
-	TextSize = 17,
+local multRow = new("Frame", { Size = UDim2.new(1, 0, 0, 96), BackgroundTransparency = 1, Parent = rebirthPanel })
+listLayout(multRow, 18, {
+	FillDirection = Enum.FillDirection.Horizontal,
+	HorizontalAlignment = Enum.HorizontalAlignment.Center,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
 })
-local rebirthBarBack = new("Frame", {
-	Position = UDim2.fromOffset(0, 212),
-	Size = UDim2.new(1, 0, 0, 32),
-	BackgroundColor3 = COLORS.Dark,
+local function multBubble(order, color, caption)
+	local bubble = swatch(multRow, color, 84, { LayoutOrder = order })
+	local value = label(bubble, {
+		Size = UDim2.new(1, 0, 0, 44),
+		Position = UDim2.fromOffset(0, 12),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Font = FONT_TITLE,
+		TextSize = 32,
+		TextStrokeColor3 = darken(color, 0.6),
+		TextStrokeTransparency = 0.4,
+	})
+	label(bubble, {
+		Size = UDim2.new(1, 0, 0, 14),
+		Position = UDim2.fromOffset(0, 54),
+		TextXAlignment = Enum.TextXAlignment.Center,
+		Text = caption,
+		TextSize = 10,
+		TextColor3 = lighten(color, 0.8),
+	})
+	return value
+end
+local currentMultLabel = multBubble(1, THEME.Muted, "ACTUEL")
+label(multRow, {
+	LayoutOrder = 2,
+	Size = UDim2.fromOffset(40, 40),
+	Text = "➜",
+	TextSize = 34,
+	Font = FONT_TITLE,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	TextColor3 = ACCENT.Rebirth,
+})
+local nextMultLabel = multBubble(3, ACCENT.Rebirth, "APRÈS")
+local _, rebirthFill, rebirthBarText = progressBar(rebirthPanel, ACCENT.Rebirth, {
+	Position = UDim2.fromOffset(0, 108),
+	Size = UDim2.new(1, 0, 0, 34),
+})
+rebirthBarText.TextSize = 17
+local keepRow = new("Frame", {
+	Position = UDim2.fromOffset(0, 154),
+	Size = UDim2.new(1, 0, 0, 78),
+	BackgroundTransparency = 1,
 	Parent = rebirthPanel,
 })
-addCorner(rebirthBarBack, 8)
-local rebirthBarFill = new("Frame", {
-	Size = UDim2.fromScale(0, 1),
-	BackgroundColor3 = COLORS.Purple,
-	Parent = rebirthBarBack,
-})
-addCorner(rebirthBarFill, 8)
-local rebirthBarText = makeLabel(rebirthBarBack, {
-	Size = UDim2.fromScale(1, 1),
+local function infoCard(xScale, xOffset, color, title, body)
+	local card = new("Frame", {
+		Position = UDim2.new(xScale, xOffset, 0, 0),
+		Size = UDim2.new(0.5, -6, 1, 0),
+		BackgroundColor3 = color:Lerp(THEME.Card, 0.82),
+		Parent = keepRow,
+	})
+	corner(card, 16)
+	outline(card, color, 1.5, 0.55)
+	padding(card, 10, 14, 10, 14)
+	label(card, { Size = UDim2.new(1, 0, 0, 20), Text = title, Font = FONT_TITLE, TextSize = 17, TextColor3 = color })
+	label(card, {
+		Position = UDim2.fromOffset(0, 24),
+		Size = UDim2.new(1, 0, 1, -24),
+		Text = body,
+		TextWrapped = true,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		Font = FONT_BODY,
+		TextSize = 13,
+		TextColor3 = Color3.fromRGB(215, 220, 240),
+	})
+end
+infoCard(0, 0, THEME.Bad, "Tu perds", "Ta puissance et tes étapes débloquées.")
+infoCard(0.5, 6, THEME.Good, "Tu gardes", "Armes, minerais, pièces et améliorations.")
+local rebirthCost = label(rebirthPanel, {
+	Position = UDim2.fromOffset(0, 240),
+	Size = UDim2.new(1, 0, 0, 38),
+	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Center,
-	Font = Enum.Font.FredokaOne,
-	TextSize = 18,
-	ZIndex = 2,
+	TextColor3 = THEME.Sub,
+	TextSize = 14,
+	Font = FONT_BODY,
 })
-local rebirthButton = makeButton(rebirthPanel, "♻ REBIRTH", COLORS.Purple, {
+local rebirthButton = makeButton(rebirthPanel, "♻ REBIRTH", ACCENT.Rebirth, {
 	AnchorPoint = Vector2.new(0.5, 1),
 	Position = UDim2.new(0.5, 0, 1, -4),
-	Size = UDim2.fromOffset(280, 56),
+	Size = UDim2.fromOffset(300, 58),
 	TextSize = 28,
 })
 confirmButton(rebirthButton, "♻ REBIRTH", function()
@@ -3100,21 +3475,14 @@ end)
 local function refreshRebirth()
 	local data = state.Data
 	local cost = Config.GetRebirthCost(data.Rebirths)
-	local currentMult = Config.GetRebirthMult(data.Rebirths)
-	local nextMult = Config.GetRebirthMult(data.Rebirths + 1)
-	rebirthInfo.Text = table.concat({
-		"<b>Rebirths :</b> " .. data.Rebirths,
-		"<b>Multiplicateur :</b> ×" .. currentMult .. "  →  " .. colorTag(COLORS.Gold, "×" .. nextMult),
-		"(il booste l'entraînement ET les dégâts)",
-		"",
-		"<b>Prix :</b> " .. Config.Format(cost) .. " de puissance",
-		colorTag(Color3.fromRGB(255, 120, 120), "Tu perds : ta puissance et tes étapes débloquées."),
-		colorTag(Color3.fromRGB(120, 220, 150), "Tu gardes : armes, minerais, pièces, améliorations."),
-	}, "\n")
+	currentMultLabel.Text = "×" .. Config.GetRebirthMult(data.Rebirths)
+	nextMultLabel.Text = "×" .. Config.GetRebirthMult(data.Rebirths + 1)
 	local ratio = math.clamp(data.Power / cost, 0, 1)
-	rebirthBarFill.Size = UDim2.fromScale(ratio, 1)
+	setProgress(rebirthFill, ratio)
 	rebirthBarText.Text = Config.Format(data.Power) .. " / " .. Config.Format(cost) .. "  (" .. math.floor(ratio * 100) .. "%)"
-	rebirthButton.BackgroundColor3 = ratio >= 1 and COLORS.Purple or COLORS.Disabled
+	rebirthCost.Text = "Rebirth n°" .. (data.Rebirths + 1) .. " : il faut " .. Config.Format(cost)
+		.. " de puissance. Le multiplicateur booste l'entraînement ET les dégâts."
+	recolor(rebirthButton, ratio >= 1 and ACCENT.Rebirth or THEME.Muted)
 end
 
 ------------------------------------------------------------------------
@@ -3159,6 +3527,10 @@ local panelDefs = {
 }
 local currentPanel = nil
 local signatures = {}
+local baseScale = 1     -- taille de la fenêtre selon l'écran
+local windowToken = 0   -- évite qu'une vieille animation de fermeture cache une fenêtre rouverte
+local smallScreen = false -- téléphone : la barre de menus se cache quand une fenêtre est ouverte
+local dock -- barre de menus (créée plus bas)
 
 refreshPanel = function(force)
 	if not currentPanel or not state or not window.Visible then
@@ -3172,58 +3544,171 @@ refreshPanel = function(force)
 	end
 end
 
-local function openPanel(name, keepOpen)
-	if currentPanel == name and window.Visible and not keepOpen then
-		window.Visible = false
+closeWindow = function()
+	if not window.Visible then
 		return
 	end
+	windowToken = windowToken + 1
+	local myToken = windowToken
+	TweenService:Create(windowScale, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Scale = baseScale * 0.9,
+	}):Play()
+	task.delay(0.1, function()
+		if myToken == windowToken then
+			window.Visible = false
+			dock.Visible = true
+		end
+	end)
+end
+
+local function openPanel(name, keepOpen)
+	if currentPanel == name and window.Visible and not keepOpen then
+		closeWindow()
+		return
+	end
+	windowToken = windowToken + 1
 	currentPanel = name
 	for id, def in pairs(panelDefs) do
 		def.Frame.Visible = (id == name)
 	end
+	local accent = ACCENT[name] or ACCENT.Forge
+	header.BackgroundColor3 = accent
+	headerStroke.Color = darken(accent, 0.45)
 	titleLabel.Text = panelDefs[name].Title
-	window.Visible = true
+	titleLabel.TextStrokeColor3 = darken(accent, 0.6)
+	if smallScreen then
+		dock.Visible = false
+	end
+	if not window.Visible then
+		windowScale.Scale = baseScale * 0.88
+		window.Visible = true
+		TweenService:Create(windowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = baseScale,
+		}):Play()
+	end
 	refreshPanel(true)
 end
 
-closeButton.Activated:Connect(function()
-	window.Visible = false
-end)
+closeButton.Activated:Connect(closeWindow)
 
--- Barre de menus (en bas)
+------------------------------------------------------------------------
+-- BARRE DE MENUS (en bas) : grosses tuiles arrondies
+------------------------------------------------------------------------
 local MENU = {
-	{ Id = "Forge", Text = "⚒ Forge", Color = COLORS.Orange },
-	{ Id = "Ores", Text = "🎒 Minerais", Color = COLORS.Blue },
-	{ Id = "Weapons", Text = "⚔ Armes", Color = Color3.fromRGB(95, 105, 135) },
-	{ Id = "Upgrades", Text = "⬆ Boutique", Color = COLORS.Good },
-	{ Id = "Teleport", Text = "🌀 Donjon", Color = COLORS.Purple },
-	{ Id = "Rebirth", Text = "♻ Rebirth", Color = COLORS.Pink },
+	{ Id = "Forge", Icon = "⚒", Text = "Forge" },
+	{ Id = "Ores", Icon = "🎒", Text = "Minerais" },
+	{ Id = "Weapons", Icon = "⚔", Text = "Armes" },
+	{ Id = "Upgrades", Icon = "⬆", Text = "Boutique" },
+	{ Id = "Teleport", Icon = "🌀", Text = "Donjon" },
+	{ Id = "Rebirth", Icon = "♻", Text = "Rebirth" },
 }
-local menuFrame = new("Frame", {
+local TILE = 82
+local DOCK_HEIGHT = TILE + 20
+local DOCK_BOTTOM = 80 -- laisse la place à la barre d'objets de Roblox
+dock = glassFrame({
 	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -78),
-	Size = UDim2.fromOffset(#MENU * 112 + (#MENU - 1) * 8, 54),
-	BackgroundTransparency = 1,
+	Position = UDim2.new(0.5, 0, 1, -DOCK_BOTTOM),
+	Size = UDim2.fromOffset(#MENU * TILE + (#MENU - 1) * 10 + 20, DOCK_HEIGHT),
+	BackgroundTransparency = 0.12,
 	Parent = gui,
-})
-addScale(menuFrame)
-new("UIListLayout", {
+}, 28)
+addScale(dock)
+padding(dock, 10)
+listLayout(dock, 10, {
 	FillDirection = Enum.FillDirection.Horizontal,
-	Padding = UDim.new(0, 8),
 	HorizontalAlignment = Enum.HorizontalAlignment.Center,
-	SortOrder = Enum.SortOrder.LayoutOrder,
-	Parent = menuFrame,
+	VerticalAlignment = Enum.VerticalAlignment.Center,
 })
+local badges = {}
 for order, item in ipairs(MENU) do
-	local button = makeButton(menuFrame, item.Text, item.Color, {
-		LayoutOrder = order,
-		Size = UDim2.fromOffset(112, 54),
-		TextSize = 19,
+	local color = ACCENT[item.Id]
+	local tile = makeButton(dock, "", color, { LayoutOrder = order, Size = UDim2.fromOffset(TILE, TILE) })
+	tile:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 22)
+	label(tile, {
+		Position = UDim2.fromOffset(0, 8),
+		Size = UDim2.new(1, 0, 0, 38),
+		Text = item.Icon,
+		TextSize = 32,
+		TextXAlignment = Enum.TextXAlignment.Center,
 	})
-	addStroke(button, Color3.new(0, 0, 0), 2)
-	button.Activated:Connect(function()
+	label(tile, {
+		Position = UDim2.new(0, 0, 1, -30),
+		Size = UDim2.new(1, 0, 0, 20),
+		Text = item.Text,
+		Font = FONT_TITLE,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextStrokeColor3 = darken(color, 0.6),
+		TextStrokeTransparency = 0.4,
+	})
+	-- Pastille rouge "!" quand une action t'attend dans ce menu
+	local badge = new("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -6, 0, 6),
+		Size = UDim2.fromOffset(24, 24),
+		BackgroundColor3 = THEME.Bad,
+		Visible = false,
+		ZIndex = 3,
+		Parent = tile,
+	})
+	corner(badge)
+	outline(badge, WHITE, 2)
+	label(badge, { Size = UDim2.fromScale(1, 1), Text = "!", Font = FONT_TITLE, TextSize = 16, TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 4 })
+	badges[item.Id] = badge
+	tile.Activated:Connect(function()
 		openPanel(item.Id)
 	end)
+end
+
+-- Adapte tout à la taille de l'écran (PC, tablette, téléphone)
+local function updateScale()
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+	smallScreen = viewport.Y < 500
+	local scale
+	if smallScreen then
+		scale = math.clamp(viewport.Y / 520, 0.6, 1)
+	else
+		scale = math.clamp(math.min(viewport.X / 1280, viewport.Y / 720), 0.6, 1.25)
+	end
+	for _, uiScale in ipairs(scales) do
+		uiScale.Scale = scale
+	end
+	local inset = 58
+	local ok, topLeft = pcall(function()
+		return GuiService:GetGuiInset()
+	end)
+	if ok and topLeft then
+		inset = topLeft.Y
+	end
+	local guiHeight = viewport.Y - inset
+
+	-- Téléphone : infos plus compactes, butin au-dessus du bouton de saut
+	goalLabel.Visible = not smallScreen
+	rebirthLabel.Visible = not smallScreen
+	statsFrame.Position = smallScreen and UDim2.new(0, 10, 0.42, 0) or UDim2.new(0, 14, 0.5, -10)
+	lootFeed.Position = smallScreen and UDim2.new(1, -10, 0.22, 0) or UDim2.new(1, -14, 0.5, 0)
+	local dockBottom = smallScreen and 62 or DOCK_BOTTOM
+	dock.Position = UDim2.new(0.5, 0, 1, -dockBottom)
+
+	if smallScreen then
+		-- La fenêtre prend presque tout l'écran, sous les notifications
+		-- (la barre de menus se cache pendant ce temps)
+		local top = 40 * scale
+		baseScale = math.min(scale, (guiHeight - top - 8) / WINDOW_SIZE.Y, (viewport.X - 20) / WINDOW_SIZE.X)
+		window.Position = UDim2.new(0.5, 0, 0, top + (guiHeight - top) / 2)
+	else
+		-- La fenêtre se place dans l'espace libre au-dessus de la barre de menus
+		local space = guiHeight - dockBottom - DOCK_HEIGHT * scale - 16
+		baseScale = math.min(scale, (space - 8) / WINDOW_SIZE.Y)
+		window.Position = UDim2.new(0.5, 0, 0, 8 + space / 2)
+	end
+	if window.Visible then
+		windowScale.Scale = baseScale
+	end
+	if not window.Visible or not smallScreen then
+		dock.Visible = true
+	end
 end
 
 ------------------------------------------------------------------------
@@ -3251,18 +3736,21 @@ end
 
 local function updateStats()
 	local data = state.Data
-	powerLabel.Text = "💪 Puissance : " .. Config.Format(data.Power)
-	damageLabel.Text = "⚔ Dégâts : " .. Config.Format(state.Damage)
-	coinsLabel.Text = "💰 Pièces : " .. Config.Format(data.Coins)
-	oresLabel.Text = "🎒 Minerais : " .. state.OreTotal .. " / " .. state.Capacity
-	oresLabel.TextColor3 = state.OreTotal >= state.Capacity and Color3.fromRGB(255, 110, 110) or Color3.fromRGB(110, 170, 255)
-	rebirthLabel.Text = "♻ Rebirths : " .. data.Rebirths .. "  (×" .. Config.GetRebirthMult(data.Rebirths) .. ")"
+	powerLabel.Text = Config.Format(data.Power)
+	damageLabel.Text = Config.Format(state.Damage)
+	coinsLabel.Text = Config.Format(data.Coins)
+	oresLabel.Text = state.OreTotal .. " / " .. state.Capacity
+	oresLabel.TextColor3 = state.OreTotal >= state.Capacity and Color3.fromRGB(255, 120, 130) or THEME.Text
+	rebirthLabel.Text = "♻ Rebirth " .. data.Rebirths .. "  •  bonus ×" .. Config.GetRebirthMult(data.Rebirths)
 	local weapon = getEquippedWeapon(data)
 	weaponLabel.Text = "🗡 " .. Config.GetWeaponName(weapon)
-	weaponLabel.TextColor3 = weapon and Config.Rarities[weapon.Quality] or COLORS.Text
-	trainingLabel.Visible = state.Training > 0
-	trainingLabel.Text = "🏋 Entraînement : +" .. Config.Format(state.Training) .. "/s"
+	weaponLabel.TextColor3 = weapon and Config.Rarities[weapon.Quality] or THEME.Text
+	trainingChip.Visible = state.Training > 0
+	trainingLabel.Text = "🏋 Entraînement +" .. Config.Format(state.Training) .. "/s"
 	goalLabel.Text = "🎯 " .. getGoal()
+	badges.Rebirth.Visible = data.Power >= Config.GetRebirthCost(data.Rebirths)
+	badges.Forge.Visible = #data.Weapons == 0 and state.OreTotal >= Config.MinOres
+	badges.Ores.Visible = state.OreTotal >= state.Capacity
 end
 
 ------------------------------------------------------------------------
@@ -3314,9 +3802,9 @@ HitFx.OnClientEvent:Connect(function(position, amount, killed)
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		Text = (killed and "💥 " or "") .. Config.Format(amount),
-		TextColor3 = killed and COLORS.Gold or Color3.new(1, 1, 1),
+		TextColor3 = killed and THEME.Gold or WHITE,
 		TextStrokeTransparency = 0,
-		Font = Enum.Font.FredokaOne,
+		Font = FONT_TITLE,
 		TextScaled = true,
 		Parent = billboard,
 	})
@@ -3334,12 +3822,12 @@ LootFx.OnClientEvent:Connect(function(info)
 	for _, oreId in ipairs(info.Ores or {}) do
 		local ore = Config.OreById[oreId]
 		if ore then
-			showLoot("+1 " .. ore.Name, Config.Rarities[ore.Rarity])
+			showLoot("+1 " .. ore.Name, Config.Rarities[ore.Rarity], ore.Color)
 			flyLoot(info.Position, ore.Color)
 		end
 	end
 	if info.Coins and info.Coins > 0 then
-		showLoot("+" .. Config.Format(info.Coins) .. " 💰", COLORS.Gold)
+		showLoot("+" .. Config.Format(info.Coins) .. " 💰", THEME.Gold)
 	end
 end)
 
@@ -3370,7 +3858,7 @@ end
 
 Action:FireServer("RequestData") -- demande nos données au serveur
 
--- Si le serveur ne répond jamais, on le dit au lieu de rester sur "Chargement..."
+-- Si le serveur ne répond jamais, on le dit au lieu de rester sans données
 task.delay(15, function()
 	if state then
 		return

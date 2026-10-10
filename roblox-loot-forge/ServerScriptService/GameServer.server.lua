@@ -298,12 +298,37 @@ local function makePart(props)
 	return part
 end
 
-local function makeSign(adornee, text, color, width, height, offsetY)
+-- Panneau flottant : une carte sombre aux coins arrondis (ou juste du texte si plain = true)
+local function makeSign(adornee, text, color, width, height, offsetY, plain)
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.new(width, 0, height, 0)
 	gui.StudsOffset = Vector3.new(0, offsetY, 0)
 	gui.MaxDistance = 250
 	gui.LightInfluence = 0
+	local holder = gui
+	if not plain then
+		local card = Instance.new("Frame")
+		card.Size = UDim2.fromScale(1, 1)
+		card.BackgroundColor3 = Color3.fromRGB(16, 20, 34)
+		card.BackgroundTransparency = 0.15
+		card.BorderSizePixel = 0
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.3, 0)
+		corner.Parent = card
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = color
+		stroke.Thickness = 3
+		stroke.Transparency = 0.15
+		stroke.Parent = card
+		local padding = Instance.new("UIPadding")
+		padding.PaddingTop = UDim.new(0.1, 0)
+		padding.PaddingBottom = UDim.new(0.1, 0)
+		padding.PaddingLeft = UDim.new(0.05, 0)
+		padding.PaddingRight = UDim.new(0.05, 0)
+		padding.Parent = card
+		card.Parent = gui
+		holder = card
+	end
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
@@ -311,8 +336,8 @@ local function makeSign(adornee, text, color, width, height, offsetY)
 	label.TextColor3 = color
 	label.TextScaled = true
 	label.Font = Enum.Font.FredokaOne
-	label.TextStrokeTransparency = 0
-	label.Parent = gui
+	label.TextStrokeTransparency = plain and 0 or 0.6
+	label.Parent = holder
 	gui.Parent = adornee
 	return gui, label
 end
@@ -400,7 +425,7 @@ local titlePost = makePart({
 	Transparency = 1,
 	CanCollide = false,
 })
-makeSign(titlePost, Config.GameTitle, COLOR_GOLD, 60, 12, 0)
+makeSign(titlePost, Config.GameTitle, COLOR_GOLD, 60, 12, 0, true)
 
 -- 2b. TAPIS D'ENTRAÎNEMENT -------------------------------------------
 local padParts = {}
@@ -985,7 +1010,11 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 	barBack.BorderSizePixel = 0
 	barBack.Parent = gui
 	local backCorner = Instance.new("UICorner")
-	backCorner.CornerRadius = UDim.new(0.3, 0)
+	backCorner.CornerRadius = UDim.new(1, 0)
+	local backStroke = Instance.new("UIStroke")
+	backStroke.Color = Color3.fromRGB(0, 0, 0)
+	backStroke.Thickness = 2
+	backStroke.Parent = barBack
 	backCorner.Parent = barBack
 
 	local fill = Instance.new("Frame")
@@ -994,7 +1023,7 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 	fill.BorderSizePixel = 0
 	fill.Parent = barBack
 	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0.3, 0)
+	fillCorner.CornerRadius = UDim.new(1, 0)
 	fillCorner.Parent = fill
 
 	local hpLabel = Instance.new("TextLabel")

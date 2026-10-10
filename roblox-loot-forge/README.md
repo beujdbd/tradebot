@@ -16,6 +16,7 @@ tu **forges** des armes avec tes minerais → tu deviens plus fort → tu déblo
 | **Boutique** | Capacité de minerais (+5 places), Chance (minerais plus rares) |
 | **Rebirth** | Remet puissance et étapes à zéro, mais donne ×2, ×3, ×4… sur l'entraînement **et** les dégâts |
 | **Sauvegarde** | Automatique (DataStore) toutes les 90 s et quand on quitte |
+| **Interface** | Boutons arrondis animés, compteurs en pastilles, barre de menus en tuiles, s'adapte au téléphone |
 
 **Formule des dégâts :** `Puissance × Multiplicateur de l'arme × Multiplicateur de rebirth`
 
@@ -98,6 +99,10 @@ Tout se règle dans **GameConfig** (les commentaires expliquent chaque valeur) :
 - `Config.Stages` : noms des étapes, couleurs, noms des monstres et des boss
 - `Config.EnemyHPGrowth` : difficulté (PV ×5 par étape par défaut)
 - `Config.TrainingPads`, `Config.Upgrades`, `Config.RebirthBaseCost`…
+
+Pour changer le **look de l'interface** (couleurs des boutons, des menus, polices),
+ouvre `GameClient` et regarde la partie **STYLE** tout en haut : `THEME` (couleurs de
+base), `ACCENT` (une couleur par menu) et les polices `FONT_TITLE` / `FONT_BODY`.
 
 > ⚠️ Si tu ajoutes des étapes, ajoute aussi des minerais (une étape N lâche
 > surtout le minerai N), sinon les dernières étapes donneront toutes le même.
