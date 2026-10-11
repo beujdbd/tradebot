@@ -95,6 +95,7 @@ local HitFx = remotes:WaitForChild("HitFx")
 local OpenPanel = remotes:WaitForChild("OpenPanel")
 local Action = remotes:WaitForChild("Action")
 local GuiService = game:GetService("GuiService")
+local StarterGui = game:GetService("StarterGui")
 
 ------------------------------------------------------------------------
 -- STYLE : couleurs, polices (change-les ici pour personnaliser l'interface)
@@ -216,23 +217,41 @@ local function label(parent, props)
 	return text
 end
 
--- Petite animation : grossit au survol, s'écrase quand on appuie
+-- Petite animation : grossit au survol (souris), s'écrase quand on appuie (souris ou doigt)
 local function pressEffect(button)
 	local scale = new("UIScale", { Parent = button })
+	local hovered = false
 	local function scaleTo(value, duration)
 		TweenService:Create(scale, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Scale = value }):Play()
 	end
-	button.MouseEnter:Connect(function()
-		scaleTo(1.05, 0.12)
+	button.InputBegan:Connect(function(input)
+		if button:GetAttribute("Disabled") then
+			return
+		end
+		local kind = input.UserInputType
+		if kind == Enum.UserInputType.MouseMovement then
+			hovered = true
+			scaleTo(1.05, 0.12)
+		elseif kind == Enum.UserInputType.MouseButton1 or kind == Enum.UserInputType.Touch then
+			scaleTo(0.93, 0.06)
+			local connection
+			connection = input.Changed:Connect(function()
+				local inputState = input.UserInputState
+				if inputState == Enum.UserInputState.End or inputState == Enum.UserInputState.Cancel then
+					connection:Disconnect()
+					if kind == Enum.UserInputType.Touch then
+						hovered = false -- pas de "survol" sur un écran tactile
+					end
+					scaleTo(hovered and 1.05 or 1, 0.1)
+				end
+			end)
+		end
 	end)
-	button.MouseLeave:Connect(function()
-		scaleTo(1, 0.12)
-	end)
-	button.MouseButton1Down:Connect(function()
-		scaleTo(0.93, 0.06)
-	end)
-	button.MouseButton1Up:Connect(function()
-		scaleTo(1.05, 0.1)
+	button.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement then
+			hovered = false
+			scaleTo(1, 0.12)
+		end
 	end)
 end
 
@@ -254,6 +273,13 @@ local function makeButton(parent, text, color, props)
 	for key, value in pairs(props or {}) do
 		button[key] = value
 	end
+	-- Point d'ancrage au centre : l'animation grossit le bouton depuis son milieu
+	if not parent:FindFirstChildWhichIsA("UIGridStyleLayout") then
+		local anchor, size = button.AnchorPoint, button.Size
+		button.AnchorPoint = Vector2.new(0.5, 0.5)
+		button.Position = button.Position + UDim2.new(size.X.Scale * (0.5 - anchor.X), size.X.Offset * (0.5 - anchor.X),
+			size.Y.Scale * (0.5 - anchor.Y), size.Y.Offset * (0.5 - anchor.Y))
+	end
 	button.Parent = parent
 	pressEffect(button)
 	return button
@@ -266,6 +292,14 @@ local function recolor(button, color)
 	if stroke then
 		stroke.Color = darken(color, 0.45)
 	end
+end
+
+-- Bouton grisé et sans animation quand l'action n'est pas possible
+local function setEnabled(button, enabled, color)
+	recolor(button, enabled and color or THEME.Muted)
+	button.BackgroundTransparency = enabled and 0 or 0.45
+	button.TextTransparency = enabled and 0 or 0.4
+	button:SetAttribute("Disabled", not enabled)
 end
 
 -- Bouton qui demande une confirmation ("Sûr ?") avant d'agir
@@ -309,7 +343,7 @@ end
 -- Texte foncé sur les couleurs claires, blanc sur les couleurs foncées
 local function textOn(color)
 	local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
-	if luminance > 0.62 then
+	if luminance > 0.55 then
 		return THEME.Glass
 	end
 	return WHITE
@@ -350,6 +384,7 @@ local function progressBar(parent, color, props)
 	corner(back)
 	outline(back, WHITE, 1, 0.88)
 	local fill = new("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = color, Parent = back })
+	fill:SetAttribute("MinPx", back.Size.Y.Offset)
 	corner(fill)
 	gloss(fill)
 	local text = label(back, {
@@ -367,7 +402,8 @@ end
 local function setProgress(fill, ratio)
 	ratio = math.clamp(ratio, 0, 1)
 	fill.Visible = ratio > 0.001
-	fill.Size = UDim2.fromScale(math.max(ratio, 0.04), 1)
+	local minWidth = fill:GetAttribute("MinPx") or 0
+	fill.Size = UDim2.new(ratio, math.floor(minWidth * (1 - ratio)), 1, 0) -- jamais plus étroit qu'un rond
 end
 
 -- Rond coloré (couleur d'un minerai)
@@ -411,9 +447,11 @@ end
 ------------------------------------------------------------------------
 -- L'ÉCRAN PRINCIPAL
 ------------------------------------------------------------------------
-local oldGui = playerGui:FindFirstChild("LootForgeUI")
-if oldGui then
-	oldGui:Destroy() -- le script a été relancé : on évite d'avoir l'interface en double
+for _, oldName in ipairs({ "LootForgeUI", "LootForgeNotifs" }) do
+	local oldGui = playerGui:FindFirstChild(oldName)
+	if oldGui then
+		oldGui:Destroy() -- le script a été relancé : on évite d'avoir l'interface en double
+	end
 end
 local gui = new("ScreenGui", {
 	Name = "LootForgeUI",
@@ -428,16 +466,27 @@ local function addScale(frame)
 	table.insert(scales, new("UIScale", { Parent = frame }))
 end
 
+local window -- la fenêtre des menus (créée plus bas)
+local smallScreen = false -- téléphone : mise en page compacte
+
 ------------------------------------------------------------------------
 -- NOTIFICATIONS (en haut au centre)
 ------------------------------------------------------------------------
+-- Les notifications ont leur propre écran, placé dans la barre du haut de Roblox,
+-- pour ne jamais cacher le titre d'une fenêtre
+local notifGui = new("ScreenGui", {
+	Name = "LootForgeNotifs",
+	ResetOnSpawn = false,
+	IgnoreGuiInset = true,
+	DisplayOrder = 5,
+	Parent = playerGui,
+})
 local notifFrame = new("Frame", {
 	AnchorPoint = Vector2.new(0.5, 0),
-	Position = UDim2.new(0.5, 0, 0, 10),
+	Position = UDim2.new(0.5, 0, 0, 6),
 	Size = UDim2.fromOffset(540, 10),
 	BackgroundTransparency = 1,
-	ZIndex = 10, -- toujours au-dessus des fenêtres
-	Parent = gui,
+	Parent = notifGui,
 })
 addScale(notifFrame)
 listLayout(notifFrame, 8, { HorizontalAlignment = Enum.HorizontalAlignment.Center })
@@ -468,22 +517,28 @@ local function showNotification(text, color)
 		Font = FONT_TITLE,
 		TextSize = 19,
 	})
-	-- Apparition avec un petit rebond
-	local pop = new("UIScale", { Scale = 0.85, Parent = toast })
-	TweenService:Create(pop, TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	-- Apparition en fondu
+	toast.BackgroundTransparency = 1
+	text.TextTransparency = 1
+	stroke.Transparency = 1
+	local fadeIn = TweenInfo.new(0.2)
+	TweenService:Create(toast, fadeIn, { BackgroundTransparency = 0.04 }):Play()
+	TweenService:Create(text, fadeIn, { TextTransparency = 0 }):Play()
+	TweenService:Create(stroke, fadeIn, { Transparency = 0.35 }):Play()
 
-	-- Pas plus de 4 notifications à la fois
+	-- Pas plus de 4 notifications à la fois (1 seule quand une fenêtre est ouverte)
+	local limit = (window and window.Visible) and 1 or 4
 	local items = {}
 	for _, child in ipairs(notifFrame:GetChildren()) do
 		if child:IsA("Frame") then
 			table.insert(items, child)
 		end
 	end
-	if #items > 4 then
+	if #items > limit then
 		table.sort(items, function(a, b)
 			return a.LayoutOrder < b.LayoutOrder
 		end)
-		for i = 1, #items - 4 do
+		for i = 1, #items - limit do
 			items[i]:Destroy()
 		end
 	end
@@ -549,11 +604,12 @@ local function showLoot(text, color, dotColor)
 			table.insert(items, child)
 		end
 	end
-	if #items > 7 then
+	local maxBubbles = smallScreen and 4 or 7
+	if #items > maxBubbles then
 		table.sort(items, function(a, b)
 			return a.LayoutOrder < b.LayoutOrder
 		end)
-		for i = 1, #items - 7 do
+		for i = 1, #items - maxBubbles do
 			items[i]:Destroy()
 		end
 	end
@@ -583,7 +639,7 @@ local statsFrame = new("Frame", {
 	Parent = gui,
 })
 addScale(statsFrame)
-listLayout(statsFrame, 8)
+local statsLayout = listLayout(statsFrame, 8)
 
 local function statPill(order, icon, title, color)
 	local pill = new("Frame", {
@@ -606,7 +662,7 @@ local function statPill(order, icon, title, color)
 		Position = UDim2.fromOffset(54, 7),
 		Size = UDim2.new(1, -66, 0, 12),
 		Text = title,
-		TextSize = 11,
+		TextSize = 12,
 		TextColor3 = THEME.Sub,
 	})
 	return label(pill, {
@@ -624,30 +680,30 @@ local damageLabel = statPill(2, "⚔", "DÉGÂTS", Color3.fromRGB(242, 72, 92))
 local coinsLabel = statPill(3, "💰", "PIÈCES", Color3.fromRGB(255, 196, 40))
 local oresLabel = statPill(4, "🎒", "MINERAIS", Color3.fromRGB(52, 150, 255))
 
-local infoCard = glassFrame({
+local weaponCard = glassFrame({
 	LayoutOrder = 5,
 	Size = UDim2.new(1, 0, 0, 0),
 	AutomaticSize = Enum.AutomaticSize.Y,
 	Parent = statsFrame,
 }, 18)
-padding(infoCard, 12, 14, 12, 14)
-listLayout(infoCard, 6)
-local weaponLabel = label(infoCard, {
+padding(weaponCard, 12, 14, 12, 14)
+listLayout(weaponCard, 6)
+local weaponLabel = label(weaponCard, {
 	LayoutOrder = 1,
 	Size = UDim2.new(1, 0, 0, 20),
 	Font = FONT_TITLE,
 	TextSize = 17,
 	TextTruncate = Enum.TextTruncate.AtEnd,
 })
-local rebirthLabel = label(infoCard, {
+local rebirthLabel = label(weaponCard, {
 	LayoutOrder = 2,
 	Size = UDim2.new(1, 0, 0, 16),
 	TextSize = 13,
 	TextColor3 = Color3.fromRGB(205, 160, 255),
 })
-local trainingChip = chip(infoCard, "", THEME.Good, { LayoutOrder = 3, Visible = false, Size = UDim2.new(0, 0, 0, 24) })
+local trainingChip = chip(weaponCard, "", THEME.Good, { LayoutOrder = 3, Visible = false, Size = UDim2.new(0, 0, 0, 24) })
 local trainingLabel = trainingChip:FindFirstChildOfClass("TextLabel")
-local goalLabel = label(infoCard, {
+local goalLabel = label(weaponCard, {
 	LayoutOrder = 4,
 	Size = UDim2.new(1, 0, 0, 0),
 	AutomaticSize = Enum.AutomaticSize.Y,
@@ -661,7 +717,8 @@ local goalLabel = label(infoCard, {
 -- FENÊTRE DES MENUS (au centre)
 ------------------------------------------------------------------------
 local WINDOW_SIZE = Vector2.new(660, 450)
-local window = glassFrame({
+local WINDOW_SIZE_PHONE = Vector2.new(720, 400) -- plus large et moins haute sur téléphone
+window = glassFrame({
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.45),
 	Size = UDim2.fromOffset(WINDOW_SIZE.X, WINDOW_SIZE.Y),
@@ -686,11 +743,12 @@ local titleLabel = label(header, {
 	TextSize = 27,
 	TextStrokeTransparency = 0.55,
 })
-local closeButton = makeButton(header, "✕", THEME.Bad, {
+local closeButton = makeButton(header, "✕", THEME.Glass, {
 	AnchorPoint = Vector2.new(1, 0.5),
 	Position = UDim2.new(1, -10, 0.5, 0),
 	Size = UDim2.fromOffset(38, 38),
 	TextSize = 20,
+	BackgroundTransparency = 0.35,
 })
 local content = new("Frame", {
 	Position = UDim2.fromOffset(16, 80),
@@ -721,8 +779,9 @@ local function makeScroll(parent, props, useGrid)
 	corner(scroll, 16)
 	if useGrid then
 		new("UIGridLayout", {
-			CellSize = UDim2.fromOffset(190, 78),
+			CellSize = UDim2.fromOffset(196, 78),
 			CellPadding = UDim2.fromOffset(8, 8),
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = scroll,
 		})
@@ -797,11 +856,13 @@ padding(forgeSide, 14)
 local forgeInfo = label(forgeSide, {
 	Size = UDim2.new(1, 0, 1, -112),
 	TextWrapped = true,
+	TextScaled = true,
 	RichText = true,
 	TextYAlignment = Enum.TextYAlignment.Top,
 	Font = FONT_BODY,
 	TextSize = 15,
 })
+new("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 11, Parent = forgeInfo })
 local forgeClear = makeButton(forgeSide, "Vider", THEME.Muted, {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.new(0, 0, 1, -58),
@@ -874,7 +935,7 @@ local function refreshForge()
 				Size = UDim2.new(1, -224, 0, 16),
 				Text = "×" .. Config.Format(ore.Mult) .. "  •  tu as " .. have,
 				TextColor3 = THEME.Sub,
-				TextSize = 12,
+				TextSize = 13,
 				Font = FONT_BODY,
 			})
 			local minus = makeButton(row, "−", THEME.Bad, {
@@ -949,7 +1010,7 @@ local function refreshForge()
 	table.insert(lines, colorTag(THEME.Sub, Config.GreatswordOres .. "+ minerais = Espadon"))
 	table.insert(lines, colorTag(THEME.Sub, "Qualité au hasard : jusqu'à ×" .. Config.Qualities[#Config.Qualities].Mult .. " !"))
 	forgeInfo.Text = table.concat(lines, "\n")
-	recolor(forgeButton, preview.Ok and ACCENT.Forge or THEME.Muted)
+	setEnabled(forgeButton, preview.Ok, ACCENT.Forge)
 end
 
 forgeButton.Activated:Connect(function()
@@ -1029,7 +1090,7 @@ local function refreshOres()
 				Size = UDim2.new(1, -310, 0, 16),
 				Text = ore.Rarity .. "  •  ×" .. Config.Format(ore.Mult) .. "  •  " .. Config.Format(ore.Sell) .. " 💰/u",
 				TextColor3 = THEME.Sub,
-				TextSize = 12,
+				TextSize = 13,
 				Font = FONT_BODY,
 			})
 			local sellOne = makeButton(row, "Vendre 1", THEME.Blue, {
@@ -1101,7 +1162,7 @@ local function weaponRow(order, weapon)
 			AutomaticSize = Enum.AutomaticSize.X,
 			Text = weapon.OreCount .. " minerais",
 			TextColor3 = THEME.Sub,
-			TextSize = 12,
+			TextSize = 13,
 			Font = FONT_BODY,
 		})
 	else
@@ -1110,7 +1171,7 @@ local function weaponRow(order, weapon)
 			AutomaticSize = Enum.AutomaticSize.X,
 			Text = "Arme de départ",
 			TextColor3 = THEME.Sub,
-			TextSize = 12,
+			TextSize = 13,
 			Font = FONT_BODY,
 		})
 	end
@@ -1124,13 +1185,15 @@ local function weaponRow(order, weapon)
 		Font = FONT_TITLE,
 		TextSize = 21,
 	})
-	local equipButton = makeButton(row, isEquipped and "Équipée" or "Équiper", isEquipped and THEME.Muted or THEME.Good, {
+	local equipButton = makeButton(row, isEquipped and "✔ Équipée" or "Équiper", THEME.Good, {
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -128, 0.5, 0),
+		Position = UDim2.new(1, -134, 0.5, 0),
 		Size = UDim2.fromOffset(100, 36),
-		TextSize = 16,
+		TextSize = 15,
 	})
-	if not isEquipped then
+	if isEquipped then
+		setEnabled(equipButton, false, THEME.Good)
+	else
 		equipButton.Activated:Connect(function()
 			Action:FireServer("Equip", weapon and weapon.Id or 0)
 		end)
@@ -1140,8 +1203,8 @@ local function weaponRow(order, weapon)
 		local sellButton = makeButton(row, priceText, THEME.Bad, {
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -10, 0.5, 0),
-			Size = UDim2.fromOffset(110, 36),
-			TextSize = 14,
+			Size = UDim2.fromOffset(118, 36),
+			TextSize = 15,
 		})
 		confirmButton(sellButton, priceText, function()
 			Action:FireServer("SellWeapon", weapon.Id)
@@ -1235,16 +1298,17 @@ local function refreshUpgrades()
 			Text = effect,
 			TextColor3 = Color3.fromRGB(120, 230, 160),
 			Font = FONT_BODY,
-			TextSize = 12,
+			TextSize = 13,
 		})
 		local cost = Config.GetUpgradeCost(upgradeId, level)
 		local canBuy = not isMax and data.Coins >= cost
-		local buyButton = makeButton(row, isMax and "MAX" or ("💰 " .. Config.Format(cost)), canBuy and THEME.Good or THEME.Muted, {
+		local buyButton = makeButton(row, isMax and "MAX" or ("💰 " .. Config.Format(cost)), THEME.Good, {
 			AnchorPoint = Vector2.new(1, 0.5),
 			Position = UDim2.new(1, -14, 0.5, 0),
 			Size = UDim2.fromOffset(150, 50),
 			TextSize = 20,
 		})
+		setEnabled(buyButton, canBuy, THEME.Good)
 		if not isMax then
 			buyButton.Activated:Connect(function()
 				Action:FireServer("Upgrade", upgradeId)
@@ -1259,42 +1323,44 @@ end
 local teleportPanel = makePanelFrame()
 local teleportGrid = makeScroll(teleportPanel, { Size = UDim2.fromScale(1, 1) }, true)
 
+-- Couleur de tuile assez foncée pour que le texte blanc reste lisible
+local function tileColor(color)
+	local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+	if luminance > 0.42 then
+		return darken(color, math.clamp((luminance - 0.42) + 0.12, 0, 0.45))
+	end
+	return color
+end
+
 local function stageTile(order, color, topText, titleText, bottomText)
-	local tile = makeButton(teleportGrid, "", color, { LayoutOrder = order })
-	local tileCorner = tile:FindFirstChildOfClass("UICorner")
-	tileCorner.CornerRadius = UDim.new(0, 18)
-	label(tile, {
-		Position = UDim2.fromOffset(14, 9),
-		Size = UDim2.new(1, -28, 0, 14),
-		Text = topText,
-		TextSize = 11,
-		TextColor3 = lighten(color, 0.75),
-	})
-	label(tile, {
+	-- La tuile est dans une "case" : l'animation la fait grossir depuis son centre
+	local slot = new("Frame", { LayoutOrder = order, BackgroundTransparency = 1, Parent = teleportGrid })
+	local tile = makeButton(slot, "", color, { Size = UDim2.fromScale(1, 1) })
+	tile:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 18)
+	local textStyle = { TextColor3 = WHITE, TextStrokeColor3 = darken(color, 0.6), TextStrokeTransparency = 0.6 }
+	local function styled(props)
+		for key, value in pairs(textStyle) do
+			props[key] = value
+		end
+		return label(tile, props)
+	end
+	styled({ Position = UDim2.fromOffset(14, 9), Size = UDim2.new(1, -28, 0, 14), Text = topText, TextSize = 12, TextTransparency = 0.15 })
+	styled({
 		Position = UDim2.fromOffset(14, 24),
 		Size = UDim2.new(1, -28, 0, 24),
 		Text = titleText,
 		Font = FONT_TITLE,
-		TextSize = 18,
-		TextStrokeColor3 = darken(color, 0.6),
-		TextStrokeTransparency = 0.5,
+		TextSize = 17,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 	})
-	label(tile, {
-		Position = UDim2.fromOffset(14, 50),
-		Size = UDim2.new(1, -28, 0, 16),
-		Text = bottomText,
-		TextSize = 12,
-		Font = FONT_BODY,
-		TextColor3 = lighten(color, 0.8),
-	})
+	styled({ Position = UDim2.fromOffset(14, 50), Size = UDim2.new(1, -28, 0, 16), Text = bottomText, TextSize = 13, Font = FONT_BODY, TextTransparency = 0.12 })
 	return tile
 end
 
 local function refreshTeleport()
 	local data = state.Data
 	clearList(teleportGrid)
-	local hubTile = stageTile(0, Color3.fromRGB(240, 170, 40), "RETOUR", "🏠 Hub", "Entraînement, forge…")
+	local hubTile = stageTile(0, tileColor(Color3.fromRGB(240, 170, 40)), "RETOUR", "🏠 Hub", "Entraînement, forge…")
 	hubTile.Activated:Connect(function()
 		Action:FireServer("Teleport", 0)
 		closeWindow()
@@ -1303,10 +1369,23 @@ local function refreshTeleport()
 		local unlocked = stage <= data.MaxStage
 		local tile
 		if unlocked then
-			tile = stageTile(stage, info.Floor:Lerp(ACCENT.Teleport, 0.4), "ÉTAPE " .. stage, info.Name,
+			tile = stageTile(stage, tileColor(info.Floor:Lerp(ACCENT.Teleport, 0.4)), "ÉTAPE " .. stage, info.Name,
 				"PV " .. Config.Format(Config.GetEnemyHP(stage, false)) .. "  •  Boss " .. Config.Format(Config.GetEnemyHP(stage, true)))
+			if stage == data.MaxStage then
+				-- La dernière étape débloquée est entourée d'or
+				local stroke = tile:FindFirstChildOfClass("UIStroke")
+				stroke.Color = THEME.Gold
+				stroke.Thickness = 3
+			end
 		else
-			tile = stageTile(stage, THEME.Muted, "ÉTAPE " .. stage, "🔒 Verrouillée", "Bats le boss de l'étape " .. (stage - 1))
+			tile = stageTile(stage, THEME.Card, "ÉTAPE " .. stage, "🔒 Verrouillée", "Bats le boss de l'étape " .. (stage - 1))
+			tile.BackgroundTransparency = 0.25
+			tile:FindFirstChildOfClass("UIStroke").Color = THEME.Muted
+			for _, child in ipairs(tile:GetChildren()) do
+				if child:IsA("TextLabel") then
+					child.TextTransparency = 0.4
+				end
+			end
 		end
 		tile.Activated:Connect(function()
 			Action:FireServer("Teleport", stage)
@@ -1370,7 +1449,7 @@ local keepRow = new("Frame", {
 	BackgroundTransparency = 1,
 	Parent = rebirthPanel,
 })
-local function infoCard(xScale, xOffset, color, title, body)
+local function rebirthCard(xScale, xOffset, color, title, body)
 	local card = new("Frame", {
 		Position = UDim2.new(xScale, xOffset, 0, 0),
 		Size = UDim2.new(0.5, -6, 1, 0),
@@ -1392,8 +1471,8 @@ local function infoCard(xScale, xOffset, color, title, body)
 		TextColor3 = Color3.fromRGB(215, 220, 240),
 	})
 end
-infoCard(0, 0, THEME.Bad, "Tu perds", "Ta puissance et tes étapes débloquées.")
-infoCard(0.5, 6, THEME.Good, "Tu gardes", "Armes, minerais, pièces et améliorations.")
+rebirthCard(0, 0, THEME.Bad, "Tu perds", "Ta puissance et tes étapes débloquées.")
+rebirthCard(0.5, 6, THEME.Good, "Tu gardes", "Armes, minerais, pièces et améliorations.")
 local rebirthCost = label(rebirthPanel, {
 	Position = UDim2.fromOffset(0, 240),
 	Size = UDim2.new(1, 0, 0, 38),
@@ -1422,8 +1501,8 @@ local function refreshRebirth()
 	setProgress(rebirthFill, ratio)
 	rebirthBarText.Text = Config.Format(data.Power) .. " / " .. Config.Format(cost) .. "  (" .. math.floor(ratio * 100) .. "%)"
 	rebirthCost.Text = "Rebirth n°" .. (data.Rebirths + 1) .. " : il faut " .. Config.Format(cost)
-		.. " de puissance. Le multiplicateur booste l'entraînement ET les dégâts."
-	recolor(rebirthButton, ratio >= 1 and ACCENT.Rebirth or THEME.Muted)
+		.. " de puissance.\nLe multiplicateur booste l'entraînement ET les dégâts."
+	setEnabled(rebirthButton, ratio >= 1, ACCENT.Rebirth)
 end
 
 ------------------------------------------------------------------------
@@ -1441,7 +1520,7 @@ local panelDefs = {
 	},
 	Weapons = { Title = "⚔ Armes", Frame = weaponsPanel, Refresh = refreshWeapons, Signature = weaponsSignature },
 	Upgrades = {
-		Title = "⬆ Boutique",
+		Title = "🛒 Boutique",
 		Frame = upgradesPanel,
 		Refresh = refreshUpgrades,
 		Signature = function()
@@ -1470,8 +1549,18 @@ local currentPanel = nil
 local signatures = {}
 local baseScale = 1     -- taille de la fenêtre selon l'écran
 local windowToken = 0   -- évite qu'une vieille animation de fermeture cache une fenêtre rouverte
-local smallScreen = false -- téléphone : la barre de menus se cache quand une fenêtre est ouverte
 local dock -- barre de menus (créée plus bas)
+
+-- Sur téléphone, quand une fenêtre est ouverte, on cache ce qui est derrière
+-- (stats, barre de menus, barre d'objets de Roblox) pour qu'elle prenne toute la place
+local function setPhoneWindowMode(windowOpen)
+	local hide = windowOpen and smallScreen
+	dock.Visible = not hide
+	statsFrame.Visible = not hide
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, not hide)
+	end)
+end
 
 refreshPanel = function(force)
 	if not currentPanel or not state or not window.Visible then
@@ -1497,7 +1586,7 @@ closeWindow = function()
 	task.delay(0.1, function()
 		if myToken == windowToken then
 			window.Visible = false
-			dock.Visible = true
+			setPhoneWindowMode(false)
 		end
 	end)
 end
@@ -1517,15 +1606,27 @@ local function openPanel(name, keepOpen)
 	headerStroke.Color = darken(accent, 0.45)
 	titleLabel.Text = panelDefs[name].Title
 	titleLabel.TextStrokeColor3 = darken(accent, 0.6)
-	if smallScreen then
-		dock.Visible = false
-	end
+	setPhoneWindowMode(true)
 	if not window.Visible then
 		windowScale.Scale = baseScale * 0.88
 		window.Visible = true
-		TweenService:Create(windowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Scale = baseScale,
-		}):Play()
+	end
+	-- Toujours revenir à la bonne taille (même si on rouvre pendant l'animation de fermeture)
+	TweenService:Create(windowScale, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = baseScale,
+	}):Play()
+	-- Une seule notification visible quand une fenêtre est ouverte
+	local toasts = {}
+	for _, child in ipairs(notifFrame:GetChildren()) do
+		if child:IsA("Frame") then
+			table.insert(toasts, child)
+		end
+	end
+	table.sort(toasts, function(a, b)
+		return a.LayoutOrder < b.LayoutOrder
+	end)
+	for i = 1, #toasts - 1 do
+		toasts[i]:Destroy()
 	end
 	refreshPanel(true)
 end
@@ -1539,7 +1640,7 @@ local MENU = {
 	{ Id = "Forge", Icon = "⚒", Text = "Forge" },
 	{ Id = "Ores", Icon = "🎒", Text = "Minerais" },
 	{ Id = "Weapons", Icon = "⚔", Text = "Armes" },
-	{ Id = "Upgrades", Icon = "⬆", Text = "Boutique" },
+	{ Id = "Upgrades", Icon = "🛒", Text = "Boutique" },
 	{ Id = "Teleport", Icon = "🌀", Text = "Donjon" },
 	{ Id = "Rebirth", Icon = "♻", Text = "Rebirth" },
 }
@@ -1563,7 +1664,8 @@ listLayout(dock, 10, {
 local badges = {}
 for order, item in ipairs(MENU) do
 	local color = ACCENT[item.Id]
-	local tile = makeButton(dock, "", color, { LayoutOrder = order, Size = UDim2.fromOffset(TILE, TILE) })
+	local slot = new("Frame", { LayoutOrder = order, Size = UDim2.fromOffset(TILE, TILE), BackgroundTransparency = 1, Parent = dock })
+	local tile = makeButton(slot, "", color, { Size = UDim2.fromScale(1, 1) })
 	tile:FindFirstChildOfClass("UICorner").CornerRadius = UDim.new(0, 22)
 	label(tile, {
 		Position = UDim2.fromOffset(0, 8),
@@ -1624,32 +1726,37 @@ local function updateScale()
 	end
 	local guiHeight = viewport.Y - inset
 
-	-- Téléphone : infos plus compactes, butin au-dessus du bouton de saut
+	-- Téléphone : infos plus compactes en haut à gauche (loin du joystick),
+	-- butin au-dessus du bouton de saut
 	goalLabel.Visible = not smallScreen
 	rebirthLabel.Visible = not smallScreen
-	statsFrame.Position = smallScreen and UDim2.new(0, 10, 0.42, 0) or UDim2.new(0, 14, 0.5, -10)
-	lootFeed.Position = smallScreen and UDim2.new(1, -10, 0.22, 0) or UDim2.new(1, -14, 0.5, 0)
-	local dockBottom = smallScreen and 62 or DOCK_BOTTOM
+	statsLayout.Padding = UDim.new(0, smallScreen and 4 or 8)
+	statsFrame.AnchorPoint = smallScreen and Vector2.new(0, 0) or Vector2.new(0, 0.5)
+	statsFrame.Position = smallScreen and UDim2.new(0, 10, 0, 4) or UDim2.new(0, 14, 0.5, -10)
+	lootFeed.Position = smallScreen and UDim2.new(1, -10, 0.3, 0) or UDim2.new(1, -14, 0.5, 0)
+	local dockBottom = smallScreen and 70 or DOCK_BOTTOM
 	dock.Position = UDim2.new(0.5, 0, 1, -dockBottom)
 
+	local size
 	if smallScreen then
-		-- La fenêtre prend presque tout l'écran, sous les notifications
-		-- (la barre de menus se cache pendant ce temps)
-		local top = 40 * scale
-		baseScale = math.min(scale, (guiHeight - top - 8) / WINDOW_SIZE.Y, (viewport.X - 20) / WINDOW_SIZE.X)
-		window.Position = UDim2.new(0.5, 0, 0, top + (guiHeight - top) / 2)
+		-- Fenêtre large et peu haute, qui prend presque tout l'écran
+		size = WINDOW_SIZE_PHONE
+		baseScale = math.min(1, (guiHeight - 10) / size.Y, (viewport.X - 220) / size.X)
+		window.Position = UDim2.new(0.5, 0, 0, 4 + (guiHeight - 4) / 2)
 	else
 		-- La fenêtre se place dans l'espace libre au-dessus de la barre de menus
+		size = WINDOW_SIZE
 		local space = guiHeight - dockBottom - DOCK_HEIGHT * scale - 16
-		baseScale = math.min(scale, (space - 8) / WINDOW_SIZE.Y)
+		baseScale = math.min(scale, (space - 8) / size.Y)
 		window.Position = UDim2.new(0.5, 0, 0, 8 + space / 2)
 	end
+	window.Size = UDim2.fromOffset(size.X, size.Y)
+	rebirthCost.Visible = not smallScreen
+	teleportGrid:FindFirstChildOfClass("UIGridLayout").CellSize = UDim2.fromOffset(math.floor((size.X - 70) / 3), 78)
 	if window.Visible then
 		windowScale.Scale = baseScale
 	end
-	if not window.Visible or not smallScreen then
-		dock.Visible = true
-	end
+	setPhoneWindowMode(window.Visible)
 end
 
 ------------------------------------------------------------------------
@@ -1667,7 +1774,7 @@ local function getGoal()
 		return "Forge ta première arme à l'enclume (bouton ⚒ Forge) !"
 	end
 	if state.OreTotal >= state.Capacity then
-		return "Sac plein : forge, vends tes minerais ou achète de la capacité (⬆ Boutique)."
+		return "Sac plein : forge, vends tes minerais ou achète de la capacité (🛒 Boutique)."
 	end
 	if data.MaxStage < #Config.Stages then
 		return "Bats le boss 👑 de l'étape " .. data.MaxStage .. " pour débloquer la suivante. Trop dur ? Entraîne-toi sur les tapis du hub !"

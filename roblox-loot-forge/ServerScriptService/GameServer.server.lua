@@ -305,6 +305,7 @@ local function makeSign(adornee, text, color, width, height, offsetY, plain)
 	gui.StudsOffset = Vector3.new(0, offsetY, 0)
 	gui.MaxDistance = 250
 	gui.LightInfluence = 0
+	gui.ClipsDescendants = false -- le contour (UIStroke) est dessiné à l'extérieur de la carte
 	local holder = gui
 	if not plain then
 		local card = Instance.new("Frame")
@@ -333,7 +334,9 @@ local function makeSign(adornee, text, color, width, height, offsetY, plain)
 	label.Size = UDim2.fromScale(1, 1)
 	label.BackgroundTransparency = 1
 	label.Text = text
-	label.TextColor3 = color
+	-- Sur la carte sombre, une couleur trop foncée serait illisible : on l'éclaircit
+	local luminance = 0.299 * color.R + 0.587 * color.G + 0.114 * color.B
+	label.TextColor3 = (not plain and luminance < 0.5) and color:Lerp(Color3.new(1, 1, 1), 0.55) or color
 	label.TextScaled = true
 	label.Font = Enum.Font.FredokaOne
 	label.TextStrokeTransparency = plain and 0 or 0.6
@@ -962,7 +965,9 @@ end
 
 local function updateEnemyBar(enemy)
 	local ratio = math.max(0, math.min(1, enemy.HP / enemy.MaxHP))
-	enemy.Fill.Size = UDim2.fromScale(ratio, 1)
+	-- La barre ne devient jamais plus étroite qu'un rond (elle resterait dans sa pilule)
+	enemy.Fill.Visible = ratio > 0
+	enemy.Fill.Size = UDim2.fromScale(enemy.BarMin + (1 - enemy.BarMin) * ratio, 1)
 	enemy.HPLabel.Text = Config.Format(math.ceil(math.max(enemy.HP, 0))) .. " / " .. Config.Format(enemy.MaxHP)
 end
 
@@ -991,6 +996,7 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 	gui.StudsOffset = Vector3.new(0, size / 2 + (isBoss and 3 or 1.6), 0)
 	gui.MaxDistance = 150
 	gui.LightInfluence = 0
+	gui.ClipsDescendants = false
 	gui.Parent = body
 
 	local nameLabel = Instance.new("TextLabel")
@@ -1051,6 +1057,8 @@ local function createEnemy(stage, isBoss, offsetX, offsetZ)
 		Contributors = {},
 		Fill = fill,
 		HPLabel = hpLabel,
+		-- largeur minimale de la barre de vie = sa hauteur (en proportion de la largeur)
+		BarMin = (isBoss and 2.6 or 1.8) * 0.45 / (isBoss and 12 or 6),
 	}
 	enemy.HP = enemy.MaxHP
 	updateEnemyBar(enemy)
